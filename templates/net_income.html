@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Net Income — Budget Tracker{% endblock %}
+
+{% block content %}
+<h4 class="mb-3">Net Income — 2026</h4>
+
+<div class="table-responsive">
+<table class="table table-sm table-hover align-middle">
+  <thead class="table-dark">
+    <tr>
+      <th>Month</th>
+      <th class="text-end">Income</th>
+      <th class="text-end">Expenses</th>
+      <th class="text-end">Net</th>
+      <th class="text-end">Savings Rate</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in summary %}
+    {% if row.get('is_total') %}
+    </tbody>
+    <tfoot>
+    <tr class="table-dark fw-bold">
+    {% else %}
+    <tr class="{% if row.net < 0 %}table-danger{% elif row.net > 0 %}table-success bg-opacity-10{% endif %}">
+    {% endif %}
+      <td>{{ row.month }}</td>
+      <td class="text-end text-success">${{ '%.2f'|format(row.income) }}</td>
+      <td class="text-end text-danger">${{ '%.2f'|format(row.expenses) }}</td>
+      <td class="text-end {% if row.net >= 0 %}text-success{% else %}text-danger{% endif %} fw-semibold">
+        {% if row.net >= 0 %}+{% endif %}${{ '%.2f'|format(row.net) }}
+      </td>
+      <td class="text-end">
+        {% if row.income > 0 %}
+          <span class="{% if row.savings_rate >= 20 %}text-success{% elif row.savings_rate < 0 %}text-danger{% else %}text-warning{% endif %}">
+            {{ '%.1f'|format(row.savings_rate) }}%
+          </span>
+        {% else %}
+          —
+        {% endif %}
+      </td>
+    </tr>
+    {% if row.get('is_total') %}</tfoot>{% endif %}
+    {% endfor %}
+</table>
+</div>
+
+<p class="text-muted small mt-2">
+  Income categories: Paycheck Income, Tax Income, Refund Income, Income.<br>
+  Everything else is counted as an expense.
+</p>
+{% endblock %}

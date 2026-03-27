@@ -1,0 +1,7 @@
+venv/
+budget.db
+budget.db.bak
+budget.db.tmp
+__pycache__/
+*.pyc
+*.pyo

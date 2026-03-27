@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Accounts — Budget Tracker{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <h4 class="mb-0">Accounts</h4>
+  <small class="text-muted ms-2">{{ accounts|length }} categories</small>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-5">
+    <div class="card">
+      <div class="card-header py-2 fw-semibold small">Add Account</div>
+      <div class="card-body py-2">
+        <form method="post" action="/accounts/add" class="d-flex gap-2">
+          <input type="text" name="name" class="form-control form-control-sm" placeholder="e.g. Hobby expense" required>
+          <button type="submit" class="btn btn-sm btn-success text-nowrap">+ Add</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-7">
+    <div class="card">
+      <div class="card-header py-2 fw-semibold small">All Accounts</div>
+      <ul class="list-group list-group-flush">
+        {% for a in accounts %}
+        <li class="list-group-item d-flex justify-content-between align-items-center py-1 px-3">
+          <span class="small">{{ a.name }}</span>
+          <button class="btn btn-xs btn-outline-danger py-0 px-1 small"
+                  onclick="deleteAccount({{ a.id }}, '{{ a.name }}', this)">✕</button>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deleteAccount(id, name, btn) {
+  if (!confirm(`Delete account "${name}"?`)) return;
+  await fetch(`/accounts/${id}/delete`, { method: 'POST' });
+  btn.closest('li').remove();
+}
+</script>
+{% endblock %}

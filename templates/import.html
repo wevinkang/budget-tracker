@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Import — Budget Tracker{% endblock %}
+
+{% block content %}
+<h4 class="mb-3">Import</h4>
+
+<div class="row g-4">
+  <!-- Bank CSV upload -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header py-2 fw-semibold small">Upload Bank CSV</div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">Supports <strong>Amex, TD, Simplii</strong> — bank is auto-detected from the header row.</p>
+        <form method="post" action="/import/bank-csv" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+          <input type="file" name="file" accept=".csv" class="form-control form-control-sm" required>
+          <button type="submit" class="btn btn-sm btn-primary text-nowrap">Import</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Journal export import -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header py-2 fw-semibold small">Import Google Sheets Journal Export</div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">
+          Export your Journal sheet as CSV from Google Sheets<br>
+          <em>(File → Download → Comma-separated values)</em><br>
+          Columns expected: <code>Date, Account, Amount, Notes, Expense Type, Month[, Bank]</code>
+        </p>
+        <form method="post" action="/import/journal-csv" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+          <input type="file" name="file" accept=".csv" class="form-control form-control-sm" required>
+          <button type="submit" class="btn btn-sm btn-success text-nowrap">Import</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Folder watcher info -->
+  <div class="col-12">
+    <div class="card border-info">
+      <div class="card-header py-2 fw-semibold small text-info">Auto-Import Folder</div>
+      <div class="card-body py-2 small">
+        <p class="mb-1">
+          Drop any bank CSV into <code>{{ import_folder }}</code> and it will be imported automatically.<br>
+          Processed files are moved to <code>{{ import_folder }}/done/</code>.
+        </p>
+        <p class="mb-0 text-muted">The watcher runs in the background while this app is open.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Import log -->
+{% if logs %}
+<h5 class="mt-4 mb-2">Import History</h5>
+<table class="table table-sm table-hover small">
+  <thead class="table-light">
+    <tr>
+      <th>File</th>
+      <th>Bank</th>
+      <th class="text-end">Imported</th>
+      <th class="text-end">Skipped</th>
+      <th>When</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for log in logs %}
+    <tr>
+      <td>{{ log.filename }}</td>
+      <td>{{ log.bank }}</td>
+      <td class="text-end text-success">{{ log.imported }}</td>
+      <td class="text-end text-muted">{{ log.skipped }}</td>
+      <td class="text-muted">{{ log.imported_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
