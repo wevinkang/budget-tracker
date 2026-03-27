@@ -1,8 +1,8 @@
 # Budget Tracker
 
-A secure, local-first personal finance tracker built with Python and Flask — replacing Google Sheets with a fully self-hosted web app that runs on your own machine.
+A secure, local-first personal finance tracker built with Python and Flask, replacing Google Sheets and other budget tracking apps with a fully self-hosted web app that runs on your own machine.
 
-Built because spreadsheets don't auto-import bank transactions, can't encrypt your data, and require a Google account to access.
+Built because spreadsheets don't auto-import bank transactions, are not encrypted, and rely on Google to access.
 
 ---
 
@@ -70,7 +70,7 @@ Security was a first-class concern in this project:
 sudo apt install python3-venv libsqlcipher-dev
 
 # 2. Clone the repo
-git clone https://github.com/YOUR_USERNAME/budget-tracker.git
+git clone https://github.com/wevinkang/budget-tracker.git
 cd budget-tracker
 
 # 3. Run — creates venv and installs dependencies automatically
