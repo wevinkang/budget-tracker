@@ -63,6 +63,21 @@ CATEGORY_MAP = {
     'Loans expense':          ['loan payment', 'student loan', 'nslsc', 'line of credit payment'],
 }
 
+# ── Transactions to skip entirely ────────────────────────────
+# Payments toward credit cards or investment accounts — already recorded elsewhere
+SKIP_PATTERNS = [
+    'miscellaneous payments american express',
+    'internet bill payment visa',
+    'td/banque td',
+    'internet bill payment questrade',
+]
+
+
+def should_skip(merchant: str) -> bool:
+    m = merchant.lower()
+    return any(pattern in m for pattern in SKIP_PATTERNS)
+
+
 # ── Need / Want classification ────────────────────────────────
 NEED_WANT_MAP = {
     'Groceries expense':      'Need',
@@ -178,6 +193,8 @@ def parse_amex(row):
         amount   = parse_amount(row[2])
         if amount is None or amount == 0:
             return None
+        if should_skip(merchant):
+            return None
         # Amex: positive = charge, negative = credit/refund
         if amount < 0:
             return _make_transaction(dt, merchant, abs(amount), 'Refund Income', 'Amex')
@@ -190,6 +207,8 @@ def parse_td(row):
     try:
         dt       = parse_date(row[0])
         merchant = clean_merchant(row[1])
+        if should_skip(merchant):
+            return None
         debit    = parse_amount(row[2])
         credit   = parse_amount(row[3]) if len(row) > 3 else None
         # Credits (deposits) come in the credit column
@@ -206,6 +225,8 @@ def parse_simplii(row):
     try:
         dt       = parse_date(row[0])
         merchant = clean_merchant(row[1])
+        if should_skip(merchant):
+            return None
         out      = parse_amount(row[2])
         inflow   = parse_amount(row[3]) if len(row) > 3 else None
         if inflow is not None and inflow > 0:
