@@ -24,7 +24,7 @@ class CSVHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         path = Path(event.src_path)
-        if path.suffix.lower() != '.csv':
+        if path.suffix.lower() not in ('.csv', '.xls', '.xlsx'):
             return
         # Small delay to ensure the file is fully written
         time.sleep(0.8)
@@ -32,10 +32,7 @@ class CSVHandler(FileSystemEventHandler):
 
     def _process(self, path: Path):
         try:
-            try:
-                content = path.read_text(encoding='utf-8')
-            except UnicodeDecodeError:
-                content = path.read_text(encoding='latin-1')
+            content = self._read_as_csv(path)
         except Exception as e:
             logger.error(f'Could not read {path.name}: {e}')
             return
@@ -49,6 +46,37 @@ class CSVHandler(FileSystemEventHandler):
             path.rename(dest)
         else:
             logger.warning(f'Could not detect bank format for {path.name} — left in place')
+
+    def _read_as_csv(self, path: Path) -> str:
+        import csv, io
+        suffix = path.suffix.lower()
+
+        if suffix == '.xlsx':
+            import openpyxl
+            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            ws = wb.active
+            out = io.StringIO()
+            writer = csv.writer(out)
+            for row in ws.iter_rows(values_only=True):
+                writer.writerow(['' if v is None else str(v) for v in row])
+            wb.close()
+            return out.getvalue()
+
+        if suffix == '.xls':
+            import xlrd
+            wb = xlrd.open_workbook(path)
+            ws = wb.sheet_by_index(0)
+            out = io.StringIO()
+            writer = csv.writer(out)
+            for i in range(ws.nrows):
+                writer.writerow([str(v) if v != '' else '' for v in ws.row_values(i)])
+            return out.getvalue()
+
+        # Plain CSV
+        try:
+            return path.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            return path.read_text(encoding='latin-1')
 
     def _unique_dest(self, filename: str) -> Path:
         dest = self.done_folder / filename

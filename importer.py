@@ -111,12 +111,16 @@ MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
 def parse_date(raw):
     if not raw:
         return None
-    s = str(raw).strip()
-    for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d', '%m-%d-%Y', '%d-%m-%Y'):
-        try:
-            return datetime.strptime(s, fmt)
-        except ValueError:
-            continue
+    s = str(raw).strip().lstrip("'")
+    # Normalize "29 Mar. 2026" → "29 Mar 2026"
+    s_clean = s.replace('.', '')
+    for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d',
+                '%m-%d-%Y', '%d-%m-%Y', '%d %b %Y', '%d %B %Y'):
+        for candidate in (s, s_clean):
+            try:
+                return datetime.strptime(candidate, fmt)
+            except ValueError:
+                continue
     return None
 
 
@@ -172,6 +176,26 @@ def detect_bank(header_row):
     return None
 
 
+def detect_bank_from_data(row):
+    """Detect bank from a data row when no header is present (e.g. TD)."""
+    if len(row) == 5 and parse_date(str(row[0]).strip()):
+        return 'td'
+    return None
+
+
+def find_header_row(rows):
+    """
+    Scan up to the first 20 rows to find the real header row.
+    Handles files like Amex XLS that have metadata before the headers.
+    Returns (header_index, data_start_index).
+    """
+    for i, row in enumerate(rows[:20]):
+        h = ','.join(str(c).strip().lower() for c in row)
+        if any(kw in h for kw in ['description', 'debit', 'funds out', 'funds in']):
+            return i, i + 1
+    return 0, 1  # fallback
+
+
 # ── Bank parsers ──────────────────────────────────────────────
 
 def _make_transaction(dt, merchant, amount, category, bank):
@@ -188,9 +212,15 @@ def _make_transaction(dt, merchant, amount, category, bank):
 
 def parse_amex(row):
     try:
-        dt       = parse_date(row[0])
-        merchant = clean_merchant(row[1])
-        amount   = parse_amount(row[2])
+        dt = parse_date(row[0])
+        # Handle both 3-col (Date, Description, Amount) Amex CSV
+        # and 10-col (Date, Date Processed, Description, Amount, ...) Amex XLS
+        if len(row) >= 9:
+            merchant = clean_merchant(row[2])
+            amount   = parse_amount(row[3])
+        else:
+            merchant = clean_merchant(row[1])
+            amount   = parse_amount(row[2])
         if amount is None or amount == 0:
             return None
         if should_skip(merchant):
@@ -254,8 +284,17 @@ def import_csv_string(content):
     if len(rows) < 2:
         return 0, 0, None
 
-    bank = detect_bank(rows[0])
+    header_idx, data_start = find_header_row(rows)
+    bank = detect_bank(rows[header_idx])
+
+    # TD exports have no header — detect from first data row instead
+    if not bank and header_idx == 0:
+        bank = detect_bank_from_data(rows[0])
+        data_start = 0  # first row is already data
+
     if not bank:
+        import logging
+        logging.getLogger(__name__).warning(f'Bank detection failed. Header row: {rows[0]}')
         return 0, 0, None
 
     existing = db.get_dedupe_keys()
@@ -264,7 +303,7 @@ def import_csv_string(content):
     parsers = {'amex': parse_amex, 'td': parse_td, 'simplii': parse_simplii}
     parse_fn = parsers[bank]
 
-    for row in rows[1:]:
+    for row in rows[data_start:]:
         if all(str(c).strip() == '' for c in row):
             continue
         t = parse_fn(row)

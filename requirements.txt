@@ -1,3 +1,5 @@
 flask
 watchdog
 sqlcipher3
+openpyxl
+xlrd
