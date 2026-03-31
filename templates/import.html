@@ -63,6 +63,7 @@
       <th class="text-end">Imported</th>
       <th class="text-end">Skipped</th>
       <th>When</th>
+      <th></th>
     </tr>
   </thead>
   <tbody>
@@ -73,6 +74,11 @@
       <td class="text-end text-success">{{ log.imported }}</td>
       <td class="text-end text-muted">{{ log.skipped }}</td>
       <td class="text-muted">{{ log.imported_at }}</td>
+      <td>
+        <form method="post" action="/import/{{ log.id }}/undo" onsubmit="return confirm('Undo this import? This will delete {{ log.imported }} transaction(s).')">
+          <button type="submit" class="btn btn-xs btn-outline-danger">Undo</button>
+        </form>
+      </td>
     </tr>
     {% endfor %}
   </tbody>

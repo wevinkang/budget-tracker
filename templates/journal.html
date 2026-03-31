@@ -87,8 +87,15 @@
       <td>{{ t.month }}</td>
       <td class="text-muted">{{ t.bank }}</td>
       <td class="text-nowrap">
-        <button class="btn btn-xs btn-outline-primary py-0 px-1"
-                onclick="openEditModal({{ t.id }}, '{{ t.date }}', {{ t.account|tojson }}, {{ t.amount }}, {{ t.notes|tojson }}, {{ t.expense_type|tojson }}, {{ t.month|tojson }}, {{ t.bank|tojson }})">
+        <button class="btn btn-xs btn-outline-primary py-0 px-1 edit-btn"
+                data-id="{{ t.id }}"
+                data-date="{{ t.date }}"
+                data-account="{{ t.account|e }}"
+                data-amount="{{ t.amount }}"
+                data-notes="{{ t.notes|e }}"
+                data-type="{{ t.expense_type|e }}"
+                data-month="{{ t.month|e }}"
+                data-bank="{{ t.bank|e }}">
           Edit
         </button>
         <button class="btn btn-xs btn-outline-danger py-0 px-1" onclick="deleteRow({{ t.id }})">Del</button>
@@ -192,19 +199,21 @@ function openAddModal() {
   autoFillMonth();
 }
 
-function openEditModal(id, date, account, amount, notes, type, month, bank) {
-  document.getElementById('modalTitle').textContent = 'Edit Transaction';
-  document.getElementById('modalSubmitBtn').textContent = 'Save';
-  document.getElementById('txnId').value = id;
-  document.getElementById('f_date').value = date;
-  document.getElementById('f_account').value = account;
-  document.getElementById('f_amount').value = amount;
-  document.getElementById('f_notes').value = notes;
-  document.getElementById('f_type').value = type;
-  document.getElementById('f_month').value = month;
-  document.getElementById('f_bank').value = bank;
-  new bootstrap.Modal(document.getElementById('txnModal')).show();
-}
+document.querySelectorAll('.edit-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById('modalTitle').textContent = 'Edit Transaction';
+    document.getElementById('modalSubmitBtn').textContent = 'Save';
+    document.getElementById('txnId').value        = btn.dataset.id;
+    document.getElementById('f_date').value       = btn.dataset.date;
+    document.getElementById('f_account').value    = btn.dataset.account;
+    document.getElementById('f_amount').value     = btn.dataset.amount;
+    document.getElementById('f_notes').value      = btn.dataset.notes;
+    document.getElementById('f_type').value       = btn.dataset.type;
+    document.getElementById('f_month').value      = btn.dataset.month;
+    document.getElementById('f_bank').value       = btn.dataset.bank;
+    new bootstrap.Modal(document.getElementById('txnModal')).show();
+  });
+});
 
 document.getElementById('txnForm').addEventListener('submit', async function(e) {
   e.preventDefault();

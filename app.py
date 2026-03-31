@@ -267,6 +267,14 @@ def import_journal_csv():
     return redirect(url_for('import_page'))
 
 
+@app.route('/import/<int:log_id>/undo', methods=['POST'])
+@login_required
+def undo_import(log_id):
+    deleted = db.undo_import(log_id)
+    flash(f'Undone — {deleted} transaction(s) removed.')
+    return redirect(url_for('import_page'))
+
+
 # ── Entry point ───────────────────────────────────────────────
 
 if __name__ == '__main__':

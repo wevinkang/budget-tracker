@@ -18,7 +18,7 @@ CATEGORY_MAP = {
 
     'Groceries expense':      ['loblaw', 'supermarket', 'bestco', 'save-on', 'safeway', 'loblaws',
                                'freshco', 'no frills', 'nofrills', 'walmart', 'costco', 't&t',
-                               'whole foods', 'iga', 'metro', 'sobeys', 'superstore'],
+                               'whole foods', 'iga', 'metro', 'sobeys', 'superstore', 'sanagans'],
     'Food expense':           ['mcdonald', 'tim horton', 'starbucks', 'subway', 'a&w', 'wendy',
                                'pizza', 'sushi', 'ramen', 'pho', 'burrito', 'chipotle', 'burger',
                                'cafe', 'restaurant', 'kitchen', 'bistro', 'grill', 'diner',
@@ -54,7 +54,7 @@ CATEGORY_MAP = {
                                'koodo', 'public mobile', 'internet', 'insurance', 'city of',
                                'utility', 'enbridge', 'ups canada', 'sonnet insurance'],
     'Educational expense':    ['udemy', 'coursera', 'linkedin learning', 'tuition', 'university',
-                               'college', 'textbook', 'pearson', 'mcgraw'],
+                               'college', 'textbook', 'pearson', 'mcgraw', 'claude'],
     'Gift expense':           ['hallmark', '1-800-flowers', 'gift card'],
     'Date expense':           ['openrice', 'roses', 'bouquet', 'florist'],
     'Credit Card expense':    ['credit card payment', 'card payment', 'visa payment',
@@ -70,6 +70,8 @@ SKIP_PATTERNS = [
     'internet bill payment visa',
     'td/banque td',
     'internet bill payment questrade',
+    'payment received - thank you',
+    'payment - thank you',
 ]
 
 

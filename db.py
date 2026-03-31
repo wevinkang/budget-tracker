@@ -380,3 +380,24 @@ def get_import_logs():
     ).fetchall()
     conn.close()
     return rows
+
+
+def undo_import(log_id):
+    """Delete all transactions imported in the same batch as the given log entry."""
+    conn = get_db()
+    log = conn.execute('SELECT * FROM import_log WHERE id=?', (log_id,)).fetchone()
+    if not log:
+        conn.close()
+        return 0
+    # Transactions created within 60 seconds of the import log timestamp and matching bank
+    deleted = conn.execute(
+        '''DELETE FROM transactions
+           WHERE UPPER(bank)=UPPER(?)
+           AND created_at BETWEEN
+               datetime(?, '-60 seconds') AND datetime(?, '+60 seconds')''',
+        (log['bank'], log['imported_at'], log['imported_at'])
+    ).rowcount
+    conn.execute('DELETE FROM import_log WHERE id=?', (log_id,))
+    conn.commit()
+    conn.close()
+    return deleted
