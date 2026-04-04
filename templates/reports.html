@@ -16,7 +16,7 @@
 
 <!-- Summary cards -->
 <div class="row g-3 mb-4">
-  <div class="col-sm-4">
+  <div class="col-6 col-sm-3">
     <div class="card text-center border-success">
       <div class="card-body py-2">
         <div class="text-muted small">Income</div>
@@ -24,7 +24,7 @@
       </div>
     </div>
   </div>
-  <div class="col-sm-4">
+  <div class="col-6 col-sm-3">
     <div class="card text-center border-danger">
       <div class="card-body py-2">
         <div class="text-muted small">Expenses</div>
@@ -32,7 +32,7 @@
       </div>
     </div>
   </div>
-  <div class="col-sm-4">
+  <div class="col-6 col-sm-3">
     {% set net = total_income - total_expense %}
     <div class="card text-center border-{% if net >= 0 %}primary{% else %}warning{% endif %}">
       <div class="card-body py-2">
@@ -43,13 +43,26 @@
       </div>
     </div>
   </div>
+  <div class="col-6 col-sm-3">
+    {% set savings_pct = (net / total_income * 100) if total_income else 0 %}
+    <div class="card text-center border-{% if savings_pct >= 0 %}success{% else %}danger{% endif %}">
+      <div class="card-body py-2">
+        <div class="text-muted small">Savings Rate</div>
+        <div class="fs-5 fw-bold {% if savings_pct >= 0 %}text-success{% else %}text-danger{% endif %}">
+          {{ '%.1f'|format(savings_pct) }}%
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="row g-4">
   <!-- Pie chart -->
   <div class="col-lg-5">
     <div class="card">
-      <div class="card-header py-2 fw-semibold small">Spending by Category</div>
+      <div class="card-header py-2 fw-semibold small">Spending by Category
+        <span class="text-muted fw-normal ms-1" style="font-size:0.75rem">— click a slice to drill down</span>
+      </div>
       <div class="card-body d-flex justify-content-center">
         <div style="max-width:340px;width:100%">
           <canvas id="pieChart"></canvas>
@@ -88,7 +101,9 @@
   <!-- Category table -->
   <div class="col-lg-7">
     <div class="card">
-      <div class="card-header py-2 fw-semibold small">Expense Breakdown — {{ month }}</div>
+      <div class="card-header py-2 fw-semibold small">Expense Breakdown — {{ month }}
+        <span class="text-muted fw-normal ms-1" style="font-size:0.75rem">— click a row to drill down</span>
+      </div>
       <div class="table-responsive">
         <table class="table table-sm table-hover mb-0 small">
           <thead class="table-light">
@@ -101,8 +116,11 @@
           </thead>
           <tbody>
             {% for row in category_data %}
-            <tr>
-              <td>{{ row.account }}</td>
+            <tr class="category-row" data-account="{{ row.account|e }}" style="cursor:pointer">
+              <td>
+                <span class="category-indicator me-1" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ccc"></span>
+                {{ row.account }}
+              </td>
               <td class="text-end">${{ '%.2f'|format(row.total) }}</td>
               <td class="text-end">
                 <div class="d-flex align-items-center justify-content-end gap-2">
@@ -113,6 +131,14 @@
                 </div>
               </td>
               <td class="text-end text-muted">{{ row.count }}</td>
+            </tr>
+            <!-- Drill-down row (hidden by default) -->
+            <tr class="drill-row d-none" id="drill-{{ loop.index }}">
+              <td colspan="4" class="p-0">
+                <div class="drill-panel px-3 py-2 border-top border-bottom" style="background:var(--bs-body-bg)">
+                  <div class="drill-content small"></div>
+                </div>
+              </td>
             </tr>
             {% else %}
             <tr><td colspan="4" class="text-center text-muted py-3">No expenses for {{ month }}.</td></tr>
@@ -136,29 +162,133 @@
 
 {% block scripts %}
 <script>
-const CHART_COLORS = [
+const MONTH   = '{{ month }}';
+const COLORS  = [
   '#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f',
   '#edc948','#b07aa1','#ff9da7','#9c755f','#bab0ac',
   '#d37295','#fabfd2','#8cd17d','#b6992d','#499894',
   '#86bcb6','#e49444','#d4a6c8','#7b7b7b','#79706e',
 ];
 
+let pieChart = null;
+let activeCategory = null;
+
+// ── Drill-down panel ──────────────────────────────────────────
+
+async function drillInto(account, colorHex) {
+  // Toggle off if same category clicked again
+  if (activeCategory === account) {
+    closeAllDrills();
+    return;
+  }
+  closeAllDrills();
+  activeCategory = account;
+
+  // Find the matching category row and its drill row
+  const catRows = document.querySelectorAll('.category-row');
+  let targetDrill = null;
+  catRows.forEach(row => {
+    if (row.dataset.account === account) {
+      row.classList.add('table-active');
+      targetDrill = row.nextElementSibling;
+    }
+  });
+  if (!targetDrill) return;
+
+  const content = targetDrill.querySelector('.drill-content');
+  content.innerHTML = '<div class="text-muted py-2">Loading…</div>';
+  targetDrill.classList.remove('d-none');
+
+  const resp = await fetch(`/reports/category-transactions?month=${encodeURIComponent(MONTH)}&account=${encodeURIComponent(account)}`);
+  const txns = await resp.json();
+
+  if (!txns.length) {
+    content.innerHTML = '<div class="text-muted py-2">No transactions found.</div>';
+    return;
+  }
+
+  const total = txns.reduce((s, t) => s + t.amount, 0);
+  const color = colorHex || '#6c757d';
+
+  let html = `
+    <div class="d-flex align-items-center gap-2 mb-2 pt-1">
+      <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color}"></span>
+      <strong>${account}</strong>
+      <span class="ms-auto text-muted">${txns.length} transaction${txns.length !== 1 ? 's' : ''} — <strong>$${total.toFixed(2)}</strong></span>
+    </div>
+    <table class="table table-sm mb-1" style="font-size:0.8rem">
+      <thead><tr>
+        <th>Date</th><th>Notes</th><th class="text-end">Amount</th><th>Type</th><th>Bank</th>
+      </tr></thead>
+      <tbody>
+  `;
+  txns.forEach(t => {
+    const typeBadge = t.expense_type === 'Need'
+      ? '<span class="badge bg-secondary" style="font-size:0.7rem">Need</span>'
+      : t.expense_type === 'Want'
+        ? '<span class="badge bg-warning text-dark" style="font-size:0.7rem">Want</span>'
+        : '';
+    html += `<tr>
+      <td class="text-nowrap">${t.date}</td>
+      <td>${t.notes}</td>
+      <td class="text-end">$${t.amount.toFixed(2)}</td>
+      <td>${typeBadge}</td>
+      <td class="text-muted">${t.bank || ''}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  content.innerHTML = html;
+}
+
+function closeAllDrills() {
+  activeCategory = null;
+  document.querySelectorAll('.drill-row').forEach(r => r.classList.add('d-none'));
+  document.querySelectorAll('.category-row').forEach(r => r.classList.remove('table-active'));
+}
+
+// ── Table row clicks ──────────────────────────────────────────
+
+document.querySelectorAll('.category-row').forEach((row, idx) => {
+  row.addEventListener('click', () => {
+    const account = row.dataset.account;
+    const color   = COLORS[idx % COLORS.length];
+    // Color the dot
+    row.querySelector('.category-indicator').style.background = color;
+    drillInto(account, color);
+  });
+});
+
+// Color all dots on load (after chart loads)
+document.querySelectorAll('.category-row').forEach((row, idx) => {
+  row.querySelector('.category-indicator').style.background = COLORS[idx % COLORS.length];
+});
+
+// ── Pie chart ─────────────────────────────────────────────────
+
 async function loadChart() {
-  const resp = await fetch(`/reports/chart-data?month={{ month }}`);
+  const resp = await fetch(`/reports/chart-data?month=${MONTH}`);
   const data = await resp.json();
   if (!data.labels.length) return;
 
-  new Chart(document.getElementById('pieChart'), {
+  pieChart = new Chart(document.getElementById('pieChart'), {
     type: 'pie',
     data: {
       labels: data.labels,
       datasets: [{
         data: data.amounts,
-        backgroundColor: CHART_COLORS.slice(0, data.labels.length),
-        borderWidth: 1,
+        backgroundColor: COLORS.slice(0, data.labels.length),
+        borderWidth: 2,
+        hoverOffset: 12,
       }]
     },
     options: {
+      onClick: (evt, elements) => {
+        if (!elements.length) { closeAllDrills(); return; }
+        const idx     = elements[0].index;
+        const account = data.labels[idx];
+        const color   = COLORS[idx % COLORS.length];
+        drillInto(account, color);
+      },
       plugins: {
         legend: {
           position: 'bottom',

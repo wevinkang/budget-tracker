@@ -64,6 +64,13 @@ def _startup():
     t.start()
 
 
+# ── PWA ───────────────────────────────────────────────────────
+
+@app.route('/sw.js')
+def service_worker():
+    return app.send_static_file('sw.js')
+
+
 # ── Routes: Journal ───────────────────────────────────────────
 
 @app.route('/')
@@ -175,6 +182,21 @@ def reports():
                            income_data=income_data,
                            total_expense=total_expense,
                            total_income=total_income)
+
+
+@app.route('/reports/category-transactions')
+@login_required
+def category_transactions():
+    month   = request.args.get('month', '')
+    account = request.args.get('account', '')
+    txns    = db.get_transactions(month=month, account=account)
+    return jsonify([{
+        'date':         t['date'],
+        'notes':        t['notes'],
+        'amount':       t['amount'],
+        'expense_type': t['expense_type'],
+        'bank':         t['bank'],
+    } for t in txns])
 
 
 @app.route('/reports/chart-data')
