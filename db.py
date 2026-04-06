@@ -1,8 +1,9 @@
+import os
 import sqlite3 as _plain_sqlite3
 from pathlib import Path
 from sqlcipher3 import dbapi2 as sqlite3
 
-DB_PATH = Path(__file__).parent / 'budget.db'
+DB_PATH = Path(os.environ.get('BUDGET_DB', Path(__file__).parent / 'budget.db'))
 
 _PASSWORD = None
 

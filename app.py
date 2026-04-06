@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 app = Flask(__name__)
 app.secret_key = 'budget-tracker-2026'
 
-IMPORT_FOLDER = Path.home() / 'budget-imports'
+IMPORT_FOLDER = Path(os.environ.get('BUDGET_IMPORTS', Path.home() / 'budget-imports'))
 DONE_FOLDER   = IMPORT_FOLDER / 'done'
 
 CURRENT_MONTH = datetime.now().strftime('%B')
