@@ -124,6 +124,13 @@ def init_db():
             skipped     INTEGER,
             imported_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS merchant_rules (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern    TEXT UNIQUE NOT NULL,
+            category   TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     conn.commit()
     conn.close()
@@ -360,6 +367,46 @@ def get_income_report(month):
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── Merchant rules ───────────────────────────────────────────
+
+def get_merchant_rules():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM merchant_rules ORDER BY pattern').fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def save_merchant_rule(pattern, category):
+    """Insert or update a rule for the given pattern."""
+    conn = get_db()
+    conn.execute(
+        'INSERT INTO merchant_rules (pattern, category) VALUES (?, ?)'
+        ' ON CONFLICT(pattern) DO UPDATE SET category=excluded.category',
+        (pattern.lower().strip(), category)
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_merchant_rule(rule_id):
+    conn = get_db()
+    conn.execute('DELETE FROM merchant_rules WHERE id=?', (rule_id,))
+    conn.commit()
+    conn.close()
+
+
+def apply_merchant_rules(merchant):
+    """Return the saved category for this merchant, or '' if none match."""
+    conn = get_db()
+    rules = conn.execute('SELECT pattern, category FROM merchant_rules').fetchall()
+    conn.close()
+    m = merchant.lower()
+    for rule in rules:
+        if rule['pattern'] in m:
+            return rule['category']
+    return ''
 
 
 # ── Import log ────────────────────────────────────────────────

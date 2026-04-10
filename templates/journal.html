@@ -167,6 +167,12 @@
           </div>
         </div>
         <div class="modal-footer py-2">
+          <div id="rememberWrap" class="me-auto d-none">
+            <div class="form-check form-check-inline mb-0">
+              <input class="form-check-input" type="checkbox" id="f_remember" name="remember" value="1">
+              <label class="form-check-label small text-muted" for="f_remember">Remember for future imports</label>
+            </div>
+          </div>
           <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
           <button type="submit" class="btn btn-sm btn-primary" id="modalSubmitBtn">Save</button>
         </div>
@@ -189,11 +195,14 @@ function autoFillMonth() {
   }
 }
 
+const E_TRANSFER_RE = /e.?transfer|interac/i;
+
 function openAddModal() {
   document.getElementById('modalTitle').textContent = 'Add Transaction';
   document.getElementById('modalSubmitBtn').textContent = 'Add';
   document.getElementById('txnId').value = '';
   document.getElementById('txnForm').reset();
+  document.getElementById('rememberWrap').classList.add('d-none');
   // Default to today
   document.getElementById('f_date').value = new Date().toISOString().split('T')[0];
   autoFillMonth();
@@ -211,6 +220,10 @@ document.querySelectorAll('.edit-btn').forEach(btn => {
     document.getElementById('f_type').value       = btn.dataset.type;
     document.getElementById('f_month').value      = btn.dataset.month;
     document.getElementById('f_bank').value       = btn.dataset.bank;
+    // Show "remember" checkbox only for non-e-transfer edits
+    const isETransfer = E_TRANSFER_RE.test(btn.dataset.notes || '');
+    document.getElementById('rememberWrap').classList.toggle('d-none', isETransfer);
+    document.getElementById('f_remember').checked = false;
     new bootstrap.Modal(document.getElementById('txnModal')).show();
   });
 });

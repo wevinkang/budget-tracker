@@ -119,7 +119,24 @@ def add_transaction():
 def edit_transaction(tid):
     data = _form_to_transaction(request.form)
     db.update_transaction(tid, data)
+    if request.form.get('remember') == '1' and request.form.get('notes') and request.form.get('account'):
+        pattern = request.form['notes'].strip().lower()
+        db.save_merchant_rule(pattern, request.form['account'])
     return jsonify(success=True)
+
+
+@app.route('/merchant-rules', methods=['GET'])
+@login_required
+def merchant_rules():
+    rules = db.get_merchant_rules()
+    return render_template('merchant_rules.html', rules=rules)
+
+
+@app.route('/merchant-rules/<int:rule_id>/delete', methods=['POST'])
+@login_required
+def delete_merchant_rule(rule_id):
+    db.delete_merchant_rule(rule_id)
+    return redirect(url_for('merchant_rules'))
 
 
 @app.route('/journal/<int:tid>/delete', methods=['POST'])
@@ -302,7 +319,7 @@ def undo_import(log_id):
 
 if __name__ == '__main__':
     import getpass
-    pwd = getpass.getpass('Budget Tracker password: ')
+    pwd = os.environ.get('BUDGET_PASSWORD') or getpass.getpass('Budget Tracker password: ')
     db.set_password(pwd)
     db.migrate_plaintext_to_encrypted()
     _WEB_PASSWORD = pwd

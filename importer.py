@@ -148,7 +148,23 @@ def parse_amount(raw):
         return None
 
 
+E_TRANSFER_PATTERNS = ['e-transfer', 'etransfer', 'e transfer', 'interac']
+
+
+def is_e_transfer(merchant):
+    m = merchant.lower()
+    return any(p in m for p in E_TRANSFER_PATTERNS)
+
+
 def categorize(merchant):
+    if is_e_transfer(merchant):
+        return ''   # always leave uncategorized — too ambiguous to auto-map
+
+    # Check learned rules first
+    saved = db.apply_merchant_rules(merchant)
+    if saved:
+        return saved
+
     m = merchant.lower()
     for category, keywords in CATEGORY_MAP.items():
         if any(kw in m for kw in keywords):
@@ -158,6 +174,8 @@ def categorize(merchant):
 
 def need_want_label(category):
     if not category:
+        return ''
+    if category in db.INCOME_CATEGORIES or category.endswith('Income'):
         return ''
     return NEED_WANT_MAP.get(category, 'Want')
 

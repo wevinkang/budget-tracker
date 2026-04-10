@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}Merchant Rules{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h5 class="mb-0">Merchant Rules</h5>
+  <span class="text-muted small ms-3">Patterns learned from manual edits — applied automatically on import</span>
+</div>
+
+{% if rules %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th>Pattern</th>
+          <th>Category</th>
+          <th>Saved</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in rules %}
+        <tr>
+          <td class="font-monospace">{{ rule.pattern }}</td>
+          <td>{{ rule.category }}</td>
+          <td class="text-muted">{{ rule.created_at[:10] }}</td>
+          <td class="text-end">
+            <form method="post" action="/merchant-rules/{{ rule.id }}/delete" style="display:inline">
+              <button class="btn btn-xs btn-outline-danger py-0 px-1"
+                      onclick="return confirm('Delete this rule?')">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<p class="text-muted">No rules saved yet. Edit a transaction and check "Remember for future imports" to create one.</p>
+{% endif %}
+{% endblock %}

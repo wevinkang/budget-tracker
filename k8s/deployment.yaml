@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: budget
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: budget
+  template:
+    metadata:
+      labels:
+        app: budget
+    spec:
+      containers:
+        - name: budget
+          image: budget-tracker:latest
+          imagePullPolicy: Never   # use locally built image, don't pull from registry
+          ports:
+            - containerPort: 5000
+          env:
+            - name: BUDGET_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: budget-secret
+                  key: password
+            - name: BUDGET_DB
+              value: /data/budget.db
+            - name: BUDGET_IMPORTS
+              value: /imports
+          volumeMounts:
+            - name: db-storage
+              mountPath: /data
+      volumes:
+        - name: db-storage
+          persistentVolumeClaim:
+            claimName: budget-db
