@@ -42,7 +42,7 @@ def login():
         if request.form.get('password') == _WEB_PASSWORD:
             session['logged_in'] = True
             session.permanent = True
-            return redirect(request.args.get('next') or url_for('journal'))
+            return redirect(request.args.get('next') or url_for('transactions'))
         flash('Incorrect password.')
     return render_template('login.html')
 
@@ -72,30 +72,53 @@ def service_worker():
     return app.send_static_file('sw.js')
 
 
-# ── Routes: Journal ───────────────────────────────────────────
+# ── Routes: Transactions ──────────────────────────────────────
 
 @app.route('/')
 @login_required
 def index():
-    return redirect(url_for('journal'))
+    month = CURRENT_MONTH
+    months = db.get_months()
+    if months and month not in months:
+        month = months[-1]
+
+    category_data  = db.get_category_report(month)
+    income_data    = db.get_income_report(month)
+    total_expense  = sum(r['total'] for r in category_data)
+    total_income   = sum(r['total'] for r in income_data)
+    net            = total_income - total_expense
+    savings_pct    = (net / total_income * 100) if total_income else 0
+    recent         = db.get_transactions(limit=10)
+    net_summary    = db.get_net_income_summary()
+    trend          = [r for r in net_summary if not r.get('is_total')][-6:]
+
+    return render_template('dashboard.html',
+                           month=month,
+                           total_income=total_income,
+                           total_expense=total_expense,
+                           net=net,
+                           savings_pct=savings_pct,
+                           category_data=category_data[:5],
+                           recent=recent,
+                           trend=trend)
 
 
-@app.route('/journal')
+@app.route('/transactions')
 @login_required
-def journal():
+def transactions():
     month        = request.args.get('month', '')
     account      = request.args.get('account', '')
     expense_type = request.args.get('expense_type', '')
     search       = request.args.get('search', '')
 
-    transactions = db.get_transactions(month=month, account=account,
-                                       expense_type=expense_type, search=search)
-    accounts     = db.get_accounts()
-    months       = db.get_months()
-    total        = sum(t['amount'] for t in transactions)
+    txns     = db.get_transactions(month=month, account=account,
+                                   expense_type=expense_type, search=search)
+    accounts = db.get_accounts()
+    months   = db.get_months()
+    total    = sum(t['amount'] for t in txns)
 
-    return render_template('journal.html',
-                           transactions=transactions,
+    return render_template('transactions.html',
+                           transactions=txns,
                            accounts=accounts,
                            months=months,
                            total=total,
@@ -105,16 +128,16 @@ def journal():
                            search=search)
 
 
-@app.route('/journal/add', methods=['POST'])
+@app.route('/transactions/add', methods=['POST'])
 @login_required
 def add_transaction():
     data = _form_to_transaction(request.form)
     db.add_transaction(data)
     flash('Transaction added.')
-    return redirect(_journal_redirect())
+    return redirect(_transactions_redirect())
 
 
-@app.route('/journal/<int:tid>/edit', methods=['POST'])
+@app.route('/transactions/<int:tid>/edit', methods=['POST'])
 @login_required
 def edit_transaction(tid):
     data = _form_to_transaction(request.form)
@@ -139,7 +162,7 @@ def delete_merchant_rule(rule_id):
     return redirect(url_for('merchant_rules'))
 
 
-@app.route('/journal/<int:tid>/delete', methods=['POST'])
+@app.route('/transactions/<int:tid>/delete', methods=['POST'])
 @login_required
 def delete_transaction(tid):
     db.delete_transaction(tid)
@@ -163,10 +186,10 @@ def _form_to_transaction(form):
     }
 
 
-def _journal_redirect():
+def _transactions_redirect():
     params = {k: v for k, v in request.form.items()
               if k in ('month', 'account', 'expense_type', 'search') and v}
-    return url_for('journal', **params)
+    return url_for('transactions', **params)
 
 
 # ── Routes: Net Income ────────────────────────────────────────
@@ -288,9 +311,9 @@ def import_bank_csv():
     return redirect(url_for('import_page'))
 
 
-@app.route('/import/journal-csv', methods=['POST'])
+@app.route('/import/transactions-csv', methods=['POST'])
 @login_required
-def import_journal_csv():
+def import_transactions_csv():
     f = request.files.get('file')
     if not f or not f.filename:
         flash('No file selected.')
@@ -301,9 +324,9 @@ def import_journal_csv():
     except UnicodeDecodeError:
         content = f.read().decode('latin-1')
 
-    added, skipped = importer.import_journal_csv(content)
-    db.log_import(f.filename, 'Journal Export', added, skipped)
-    flash(f'Journal import: {added} transaction(s) added, {skipped} skipped.')
+    added, skipped = importer.import_transactions_csv(content)
+    db.log_import(f.filename, 'Transactions Export', added, skipped)
+    flash(f'Transactions import: {added} transaction(s) added, {skipped} skipped.')
     return redirect(url_for('import_page'))
 
 

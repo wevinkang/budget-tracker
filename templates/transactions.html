@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Journal — Budget Tracker{% endblock %}
+{% block title %}Transactions — Budget Tracker{% endblock %}
 
 {% block content %}
 <div class="d-flex align-items-center mb-3 gap-2">
-  <h4 class="mb-0">Journal</h4>
+  <h4 class="mb-0">Transactions</h4>
   <button class="btn btn-sm btn-success ms-auto" data-bs-toggle="modal" data-bs-target="#txnModal" onclick="openAddModal()">
     + Add Transaction
   </button>
@@ -38,7 +38,7 @@
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Search notes…" value="{{ search }}">
     <button type="submit" class="btn btn-sm btn-outline-secondary">Go</button>
     {% if selected_month or selected_account or selected_expense_type or search %}
-    <a href="/journal" class="btn btn-sm btn-outline-danger">✕</a>
+    <a href="/transactions" class="btn btn-sm btn-outline-danger">✕</a>
     {% endif %}
   </div>
 </form>
@@ -232,7 +232,7 @@ document.getElementById('txnForm').addEventListener('submit', async function(e) 
   e.preventDefault();
   const id = document.getElementById('txnId').value;
   const form = new FormData(this);
-  const url = id ? `/journal/${id}/edit` : '/journal/add';
+  const url = id ? `/transactions/${id}/edit` : '/transactions/add';
 
   if (id) {
     // AJAX edit — update row in place then reload
@@ -247,7 +247,7 @@ document.getElementById('txnForm').addEventListener('submit', async function(e) 
 
 async function deleteRow(id) {
   if (!confirm('Delete this transaction?')) return;
-  await fetch(`/journal/${id}/delete`, { method: 'POST' });
+  await fetch(`/transactions/${id}/delete`, { method: 'POST' });
   document.getElementById(`row-${id}`).remove();
   // Update count/total — simplest is a reload
   location.reload();

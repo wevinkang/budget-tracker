@@ -19,17 +19,17 @@
     </div>
   </div>
 
-  <!-- Journal export import -->
+  <!-- Transactions export import -->
   <div class="col-md-6">
     <div class="card">
-      <div class="card-header py-2 fw-semibold small">Import Google Sheets Journal Export</div>
+      <div class="card-header py-2 fw-semibold small">Import Google Sheets Transactions Export</div>
       <div class="card-body">
         <p class="small text-muted mb-2">
-          Export your Journal sheet as CSV from Google Sheets<br>
+          Export your Transactions sheet as CSV from Google Sheets<br>
           <em>(File → Download → Comma-separated values)</em><br>
           Columns expected: <code>Date, Account, Amount, Notes, Expense Type, Month[, Bank]</code>
         </p>
-        <form method="post" action="/import/journal-csv" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+        <form method="post" action="/import/transactions-csv" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
           <input type="file" name="file" accept=".csv" class="form-control form-control-sm" required>
           <button type="submit" class="btn btn-sm btn-success text-nowrap">Import</button>
         </form>

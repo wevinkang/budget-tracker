@@ -23,7 +23,7 @@ CATEGORY_MAP = {
                                'pizza', 'sushi', 'ramen', 'pho', 'burrito', 'chipotle', 'burger',
                                'cafe', 'restaurant', 'kitchen', 'bistro', 'grill', 'diner',
                                'doordash', 'skip the dishes', 'uber eats', 'foodora', 'shawarma',
-                               'kabab', 'izakaya', 'jollibee', 'tahini', 'five guys'],
+                               'kabab', 'izakaya', 'jollibee', 'tahini', 'five guys', 'food'],
     'Drinking expense':       ['lcbo', 'bc liquor', 'beer store', 'liquor', 'wine', 'brewery',
                                'pub', 'bar ', 'taproom', 'distillery', 'bellwoods'],
     'Travel expense':         ['westjet', 'air canada', 'porter', 'flair', 'sunwing', 'airbnb',
@@ -72,6 +72,7 @@ SKIP_PATTERNS = [
     'internet bill payment questrade',
     'payment received - thank you',
     'payment - thank you',
+    'Cibc'
 ]
 
 
@@ -348,9 +349,9 @@ def import_csv_string(content):
     return added, skipped, bank.upper()
 
 
-def import_journal_csv(content):
+def import_transactions_csv(content):
     """
-    Import a Journal CSV exported from Google Sheets.
+    Import a Transactions CSV exported from Google Sheets.
     Expected columns: Date, Account, Amount, Notes, Expense Type, Month[, Bank]
     Returns (added, skipped).
     """

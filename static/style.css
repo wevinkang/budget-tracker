@@ -2,17 +2,99 @@ body {
   font-size: 0.9rem;
 }
 
+/* ── Navbar ─────────────────────────────────────────────────── */
+
+.navbar {
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 1px 8px rgba(0,0,0,0.4);
+}
+
 .navbar .nav-link {
-  color: rgba(255,255,255,.65);
-  padding: .25rem .75rem;
-  border-radius: 4px;
-  transition: background .15s;
+  color: rgba(255,255,255,.6);
+  padding: .3rem .6rem;
+  border-radius: 5px;
+  transition: background .15s, color .15s;
+  font-size: 0.85rem;
 }
 .navbar .nav-link:hover,
 .navbar .nav-link.active {
   color: #fff;
-  background: rgba(255,255,255,.15);
+  background: rgba(255,255,255,.12);
 }
+
+/* Hide text labels on small screens, show only icons */
+@media (max-width: 767px) {
+  .nav-label { display: none; }
+  .navbar .nav-link { padding: .3rem .45rem; }
+}
+
+/* ── Stat cards ──────────────────────────────────────────────── */
+
+.stat-card {
+  border-top: 3px solid transparent;
+  border-radius: 8px;
+}
+.stat-card.stat-income      { border-top-color: #198754; }
+.stat-card.stat-expense     { border-top-color: #dc3545; }
+.stat-card.stat-net-pos     { border-top-color: #0d6efd; }
+.stat-card.stat-net-neg     { border-top-color: #ffc107; }
+.stat-card.stat-savings-good { border-top-color: #20c997; }
+.stat-card.stat-savings-low  { border-top-color: #ffc107; }
+
+.stat-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--bs-secondary-color);
+  margin-bottom: 0.2rem;
+}
+
+.stat-value {
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.stat-icon {
+  font-size: 1.4rem;
+  opacity: 0.2;
+  flex-shrink: 0;
+}
+
+/* ── Cards ───────────────────────────────────────────────────── */
+
+.card {
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  border-color: rgba(255,255,255,0.1);
+}
+
+.card-header {
+  border-bottom-color: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+}
+
+.card-footer {
+  border-top-color: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.02);
+}
+
+/* ── Category dot ────────────────────────────────────────────── */
+
+.cat-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* ── Tables ──────────────────────────────────────────────────── */
+
+.table > :not(caption) > * > * {
+  padding: .3rem .5rem;
+}
+
+/* ── Misc ────────────────────────────────────────────────────── */
 
 .btn-xs {
   font-size: 0.75rem;
@@ -25,14 +107,6 @@ body {
   color: #dee2e6;
   font-weight: normal;
   font-size: 0.78rem;
-}
-
-.table > :not(caption) > * > * {
-  padding: .3rem .5rem;
-}
-
-.card {
-  border-radius: 6px;
 }
 
 code {

@@ -146,7 +146,7 @@ def seed_accounts():
 
 # ── Transactions ─────────────────────────────────────────────
 
-def get_transactions(month='', account='', expense_type='', search=''):
+def get_transactions(month='', account='', expense_type='', search='', limit=None):
     conn = get_db()
     query = 'SELECT * FROM transactions WHERE 1=1'
     params = []
@@ -163,6 +163,9 @@ def get_transactions(month='', account='', expense_type='', search=''):
         query += ' AND (notes LIKE ? OR account LIKE ?)'
         params += [f'%{search}%', f'%{search}%']
     query += ' ORDER BY date DESC, id DESC'
+    if limit:
+        query += ' LIMIT ?'
+        params.append(limit)
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return rows
