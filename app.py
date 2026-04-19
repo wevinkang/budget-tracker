@@ -1,4 +1,7 @@
+import csv
+import io
 import logging
+import math
 import os
 import threading
 from datetime import datetime
@@ -6,7 +9,7 @@ from pathlib import Path
 
 from functools import wraps
 
-from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, flash, jsonify, redirect, render_template, request, session, url_for
 
 import db
 import importer
@@ -20,12 +23,31 @@ IMPORT_FOLDER = Path(os.environ.get('BUDGET_IMPORTS', Path.home() / 'budget-impo
 DONE_FOLDER   = IMPORT_FOLDER / 'done'
 
 CURRENT_MONTH = datetime.now().strftime('%B')
+PER_PAGE = 50
 
 # Set at startup from the DB password prompt — reused for the web login
 _WEB_PASSWORD = ''
 
 
 # ── Auth ──────────────────────────────────────────────────────
+
+@app.context_processor
+def _inject_globals():
+    def page_url(page):
+        from urllib.parse import urlencode
+        args = request.args.to_dict()
+        args['page'] = page
+        return request.path + '?' + urlencode(args)
+
+    if session.get('logged_in'):
+        _accounts = db.get_accounts()
+        _stats    = db.get_summary_stats()
+    else:
+        _accounts = []
+        _stats    = {'txn_count': 0, 'month_net': 0, 'ytd_net': 0, 'month': CURRENT_MONTH}
+
+    return dict(page_url=page_url, _accounts=_accounts, _stats=_stats)
+
 
 def login_required(f):
     @wraps(f)
@@ -77,10 +99,10 @@ def service_worker():
 @app.route('/')
 @login_required
 def index():
-    month = CURRENT_MONTH
     months = db.get_months()
+    month  = request.args.get('month', CURRENT_MONTH)
     if months and month not in months:
-        month = months[-1]
+        month = months[-1] if months else CURRENT_MONTH
 
     category_data  = db.get_category_report(month)
     income_data    = db.get_income_report(month)
@@ -91,16 +113,19 @@ def index():
     recent         = db.get_transactions(limit=10)
     net_summary    = db.get_net_income_summary()
     trend          = [r for r in net_summary if not r.get('is_total')][-6:]
+    accounts       = db.get_accounts()
 
     return render_template('dashboard.html',
                            month=month,
+                           months=months,
                            total_income=total_income,
                            total_expense=total_expense,
                            net=net,
                            savings_pct=savings_pct,
                            category_data=category_data[:5],
                            recent=recent,
-                           trend=trend)
+                           trend=trend,
+                           accounts=accounts)
 
 
 @app.route('/transactions')
@@ -110,9 +135,17 @@ def transactions():
     account      = request.args.get('account', '')
     expense_type = request.args.get('expense_type', '')
     search       = request.args.get('search', '')
+    page         = max(1, int(request.args.get('page', 1) or 1))
+
+    total_count  = db.count_transactions(month=month, account=account,
+                                         expense_type=expense_type, search=search)
+    total_pages  = max(1, math.ceil(total_count / PER_PAGE))
+    page         = min(page, total_pages)
+    offset       = (page - 1) * PER_PAGE
 
     txns     = db.get_transactions(month=month, account=account,
-                                   expense_type=expense_type, search=search)
+                                   expense_type=expense_type, search=search,
+                                   limit=PER_PAGE, offset=offset)
     accounts = db.get_accounts()
     months   = db.get_months()
     total    = sum(t['amount'] for t in txns)
@@ -125,7 +158,10 @@ def transactions():
                            selected_month=month,
                            selected_account=account,
                            selected_expense_type=expense_type,
-                           search=search)
+                           search=search,
+                           page=page,
+                           total_pages=total_pages,
+                           total_count=total_count)
 
 
 @app.route('/transactions/add', methods=['POST'])
@@ -134,7 +170,30 @@ def add_transaction():
     data = _form_to_transaction(request.form)
     db.add_transaction(data)
     flash('Transaction added.')
+    next_url = request.form.get('next_url')
+    if next_url:
+        return redirect(next_url)
     return redirect(_transactions_redirect())
+
+
+@app.route('/transactions/export')
+@login_required
+def export_transactions():
+    month        = request.args.get('month', '')
+    account      = request.args.get('account', '')
+    expense_type = request.args.get('expense_type', '')
+    search       = request.args.get('search', '')
+    txns = db.get_transactions(month=month, account=account,
+                               expense_type=expense_type, search=search)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['Date', 'Account', 'Amount', 'Notes', 'Expense Type', 'Month', 'Bank'])
+    for t in txns:
+        w.writerow([t['date'], t['account'], t['amount'], t['notes'],
+                    t['expense_type'], t['month'], t['bank']])
+    filename = f"transactions-{month or 'all'}.csv"
+    return Response(buf.getvalue(), mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename={filename}'})
 
 
 @app.route('/transactions/<int:tid>/edit', methods=['POST'])
@@ -198,7 +257,8 @@ def _transactions_redirect():
 @login_required
 def net_income():
     summary = db.get_net_income_summary()
-    return render_template('net_income.html', summary=summary)
+    year = datetime.now().year
+    return render_template('net_income.html', summary=summary, year=year)
 
 
 # ── Routes: Reports ───────────────────────────────────────────

@@ -1,52 +1,366 @@
+{% from "macros.html" import icon %}
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Budget Tracker{% endblock %}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <title>{% block title %}Budget // Lux{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="manifest" href="/static/manifest.json">
   <link rel="apple-touch-icon" href="/static/icon-180.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Budget">
+  <script>
+    (function(){
+      var t = localStorage.getItem('budget-theme') || 'observatory';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
 </head>
 <body>
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark px-3">
-  <a class="navbar-brand fw-bold" href="/"><i class="bi bi-cash-stack me-1"></i>Budget</a>
-  <div class="navbar-nav flex-row flex-wrap gap-1 ms-auto">
-    <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="/"><i class="bi bi-speedometer2 me-1"></i><span class="nav-label">Dashboard</span></a>
-    <a class="nav-link {% if request.endpoint == 'transactions' %}active{% endif %}" href="/transactions"><i class="bi bi-journal-text me-1"></i><span class="nav-label">Transactions</span></a>
-    <a class="nav-link {% if request.endpoint == 'net_income' %}active{% endif %}" href="/net-income"><i class="bi bi-graph-up me-1"></i><span class="nav-label">Net Income</span></a>
-    <a class="nav-link {% if request.endpoint == 'reports' %}active{% endif %}" href="/reports"><i class="bi bi-pie-chart me-1"></i><span class="nav-label">Reports</span></a>
-    <a class="nav-link {% if request.endpoint == 'accounts' %}active{% endif %}" href="/accounts"><i class="bi bi-wallet2 me-1"></i><span class="nav-label">Accounts</span></a>
-    <a class="nav-link {% if request.endpoint == 'import_page' %}active{% endif %}" href="/import"><i class="bi bi-upload me-1"></i><span class="nav-label">Import</span></a>
-    <a class="nav-link {% if request.endpoint == 'merchant_rules' %}active{% endif %}" href="/merchant-rules"><i class="bi bi-funnel me-1"></i><span class="nav-label">Rules</span></a>
-    <a class="nav-link text-danger ms-2" href="/logout"><i class="bi bi-box-arrow-right"></i></a>
-  </div>
-</nav>
-
-<div class="container-fluid py-3 px-4">
-  {% with messages = get_flashed_messages() %}
-  {% if messages %}
-    {% for msg in messages %}
-    <div class="alert alert-info alert-dismissible fade show py-2 mb-2" role="alert">
-      {{ msg }}
-      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+<div class="app">
+  <!-- Left rail -->
+  <nav class="rail">
+    <div class="rail-brand">
+      <div class="logo">B</div>
+      <div>
+        <div class="title">BUDGET//LUX</div>
+        <div class="sub">v2.0</div>
+      </div>
     </div>
-    {% endfor %}
-  {% endif %}
-  {% endwith %}
 
-  {% block content %}{% endblock %}
+    <div class="rail-section">◇ NAV</div>
+    <a class="rail-item {% if request.endpoint == 'index' %}active{% endif %}" href="/">
+      {{ icon('dashboard') }} Overview <span class="kbd">G D</span>
+    </a>
+    <a class="rail-item {% if request.endpoint == 'transactions' %}active{% endif %}" href="/transactions">
+      {{ icon('tx') }} Transactions <span class="kbd">G T</span>
+    </a>
+    <a class="rail-item {% if request.endpoint == 'net_income' %}active{% endif %}" href="/net-income">
+      {{ icon('net') }} Net Income <span class="kbd">G N</span>
+    </a>
+    <a class="rail-item {% if request.endpoint == 'reports' %}active{% endif %}" href="/reports">
+      {{ icon('reports') }} Reports <span class="kbd">G R</span>
+    </a>
+    <a class="rail-item {% if request.endpoint == 'accounts' %}active{% endif %}" href="/accounts">
+      {{ icon('accounts') }} Accounts <span class="kbd">G A</span>
+    </a>
+    <a class="rail-item {% if request.endpoint == 'import_page' %}active{% endif %}" href="/import">
+      {{ icon('import') }} Import <span class="kbd">G I</span>
+    </a>
+    <a class="rail-item {% if request.endpoint == 'merchant_rules' %}active{% endif %}" href="/merchant-rules">
+      {{ icon('rules') }} Rules <span class="kbd">G L</span>
+    </a>
+
+    <div class="rail-section">◇ SYSTEM</div>
+    <a class="rail-item" href="/logout">{{ icon('logout') }} Logout</a>
+    <button class="rail-item" onclick="openTweaks()" style="width:100%;text-align:left">
+      {{ icon('gear') }} Tweaks
+    </button>
+
+    <div class="rail-foot">
+      <div class="row"><span>LEDGER</span><span>{{ _stats.txn_count }} entries</span></div>
+      <div class="row"><span>SYNC</span><span><span class="dot"></span> LIVE</span></div>
+      <div class="row"><span>BUILD</span><span>2026</span></div>
+    </div>
+  </nav>
+
+  <!-- Main region -->
+  <div class="main">
+    <div class="topbar">
+      <span style="color:var(--text-ghost)" class="mono">BUDGET</span>
+      <span class="crumb-sep mono">/</span>
+      <span class="crumb mono">{% block topbar_title %}{% endblock %}</span>
+      <div class="readout">
+        <span>◇ TXN <span class="val">{{ _stats.txn_count }}</span></span>
+        <span>◇ {{ _stats.month|upper }} NET
+          <span class="val {% if _stats.month_net >= 0 %}pos{% else %}neg{% endif %}">
+            {{ '+' if _stats.month_net >= 0 }}${{ '%.2f'|format(_stats.month_net|abs) }}
+          </span>
+        </span>
+        <span>◇ YTD
+          <span class="val {% if _stats.ytd_net >= 0 %}accent-c{% else %}neg{% endif %}">
+            {{ '+' if _stats.ytd_net >= 0 }}${{ '%.2f'|format(_stats.ytd_net|abs) }}
+          </span>
+        </span>
+        <button class="cmd" onclick="openCmd()">
+          {{ icon('search', 11) }} SEARCH <kbd>⌘K</kbd>
+        </button>
+      </div>
+    </div>
+
+    <div class="screen">
+      {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for msg in messages %}
+        <div class="flash-msg">
+          <span>{{ msg }}</span>
+          <button class="close-btn" onclick="this.parentElement.remove()">✕</button>
+        </div>
+        {% endfor %}
+      {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </div>
+  </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Add/Edit Transaction Modal -->
+<div class="modal-scrim hidden" id="txnModalScrim" onclick="if(event.target===this)closeModal()">
+  <div class="modal-card">
+    <div class="modal-head">
+      <span id="modalTitle">ADD TRANSACTION</span>
+      <button onclick="closeModal()" style="color:var(--text-faint);font-size:16px">✕</button>
+    </div>
+    <form id="txnForm">
+      <input type="hidden" id="txnId">
+      <input type="hidden" id="txnNextUrl">
+      <div class="modal-body">
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" class="input" id="f_date" name="date" required onchange="autoFillMonth()">
+          </div>
+          <div class="form-group">
+            <label>Month</label>
+            <input type="text" class="input" id="f_month" name="month" placeholder="auto">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Account</label>
+          <select class="select" id="f_account" name="account">
+            <option value="">— select —</option>
+            {% for a in _accounts %}
+            <option value="{{ a.name }}">{{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label>Amount ($)</label>
+            <input type="number" step="0.01" min="0" class="input" id="f_amount" name="amount" required>
+          </div>
+          <div class="form-group">
+            <label>Expense Type</label>
+            <select class="select" id="f_type" name="expense_type">
+              <option value="">—</option>
+              <option value="Need">Need</option>
+              <option value="Want">Want</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row cols-32">
+          <div class="form-group">
+            <label>Notes</label>
+            <input type="text" class="input" id="f_notes" name="notes">
+          </div>
+          <div class="form-group">
+            <label>Bank</label>
+            <input type="text" class="input" id="f_bank" name="bank">
+          </div>
+        </div>
+        <div id="rememberWrap" class="form-group hidden">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;text-transform:none;letter-spacing:0">
+            <input type="checkbox" id="f_remember" name="remember" value="1">
+            <span style="color:var(--text-dim)">Remember for future imports</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn primary" id="modalSubmitBtn">Add</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Command palette -->
+<div class="cmdk-scrim hidden" id="cmdScrim" onclick="if(event.target===this)closeCmd()">
+  <div class="cmdk">
+    <div class="cmdk-input-row">
+      <span class="prompt">❯</span>
+      <input id="cmdInput" placeholder="Navigate or search…" autocomplete="off">
+      <span class="mono faint" style="font-size:9px">ESC</span>
+    </div>
+    <div class="cmdk-list" id="cmdList"></div>
+  </div>
+</div>
+
+<!-- Tweaks panel -->
+<div class="tweaks hidden" id="tweaksPanel">
+  <div class="tweaks-head">
+    <span>◈ TWEAKS</span>
+    <button onclick="closeTweaks()" style="color:var(--text-faint)">✕</button>
+  </div>
+  <div class="tweaks-body">
+    <div class="tweak-row">
+      <label>Theme</label>
+      <div class="tweak-options">
+        <button class="tweak-opt" data-theme="observatory" onclick="setTheme('observatory')">Observatory</button>
+        <button class="tweak-opt" data-theme="greenhouse" onclick="setTheme('greenhouse')">Greenhouse</button>
+        <button class="tweak-opt" data-theme="vault"      onclick="setTheme('vault')">Vault</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<script>
+// ── Theme ──────────────────────────────────────────────────────
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('budget-theme', t);
+  document.querySelectorAll('.tweak-opt').forEach(b => b.classList.toggle('active', b.dataset.theme === t));
+}
+(function() {
+  const t = localStorage.getItem('budget-theme') || 'observatory';
+  document.querySelectorAll('.tweak-opt').forEach(b => b.classList.toggle('active', b.dataset.theme === t));
+})();
+
+// ── Tweaks ─────────────────────────────────────────────────────
+function openTweaks()  { document.getElementById('tweaksPanel').classList.remove('hidden'); }
+function closeTweaks() { document.getElementById('tweaksPanel').classList.add('hidden'); }
+
+// ── Modal ──────────────────────────────────────────────────────
+const MONTHS = ['January','February','March','April','May','June',
+                'July','August','September','October','November','December'];
+const E_TRANSFER_RE = /e.?transfer|interac/i;
+
+function autoFillMonth() {
+  const d = document.getElementById('f_date').value;
+  if (d) document.getElementById('f_month').value = MONTHS[parseInt(d.split('-')[1]) - 1];
+}
+
+function openAddModal(nextUrl) {
+  document.getElementById('modalTitle').textContent = 'ADD TRANSACTION';
+  document.getElementById('modalSubmitBtn').textContent = 'Add';
+  document.getElementById('txnId').value = '';
+  document.getElementById('txnNextUrl').value = nextUrl || '';
+  document.getElementById('txnForm').reset();
+  document.getElementById('rememberWrap').classList.add('hidden');
+  document.getElementById('f_date').value = new Date().toISOString().split('T')[0];
+  autoFillMonth();
+  document.getElementById('txnModalScrim').classList.remove('hidden');
+}
+
+function openEditModal(data) {
+  document.getElementById('modalTitle').textContent = 'EDIT TRANSACTION';
+  document.getElementById('modalSubmitBtn').textContent = 'Save';
+  document.getElementById('txnId').value        = data.id;
+  document.getElementById('txnNextUrl').value   = '';
+  document.getElementById('f_date').value       = data.date;
+  document.getElementById('f_account').value    = data.account;
+  document.getElementById('f_amount').value     = data.amount;
+  document.getElementById('f_notes').value      = data.notes;
+  document.getElementById('f_type').value       = data.type;
+  document.getElementById('f_month').value      = data.month;
+  document.getElementById('f_bank').value       = data.bank;
+  const isEt = E_TRANSFER_RE.test(data.notes || '');
+  document.getElementById('rememberWrap').classList.toggle('hidden', isEt);
+  document.getElementById('f_remember').checked = false;
+  document.getElementById('txnModalScrim').classList.remove('hidden');
+}
+
+function closeModal() { document.getElementById('txnModalScrim').classList.add('hidden'); }
+
+document.getElementById('txnForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const id      = document.getElementById('txnId').value;
+  const nextUrl = document.getElementById('txnNextUrl').value;
+  const form    = new FormData(this);
+  const url     = id ? `/transactions/${id}/edit` : '/transactions/add';
+
+  if (id) {
+    await fetch(url, { method: 'POST', body: form });
+    closeModal();
+    location.reload();
+  } else {
+    const resp = await fetch(url, {
+      method: 'POST',
+      body: (() => { if (nextUrl) form.append('next_url', nextUrl); return form; })(),
+      redirect: 'follow'
+    });
+    location.href = nextUrl || resp.url;
+  }
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeCmd(); closeTweaks(); }
+});
+
+// ── Command palette ────────────────────────────────────────────
+const CMD_ITEMS = [
+  { label: 'Overview',     hint: 'Dashboard',    kind: 'NAV',  url: '/' },
+  { label: 'Transactions', hint: 'All records',  kind: 'NAV',  url: '/transactions' },
+  { label: 'Net Income',   hint: 'YTD summary',  kind: 'NAV',  url: '/net-income' },
+  { label: 'Reports',      hint: 'Charts',       kind: 'NAV',  url: '/reports' },
+  { label: 'Accounts',     hint: 'Categories',   kind: 'NAV',  url: '/accounts' },
+  { label: 'Import',       hint: 'CSV / XLS',    kind: 'NAV',  url: '/import' },
+  { label: 'Rules',        hint: 'Merchant rules', kind: 'NAV', url: '/merchant-rules' },
+  { label: 'Add Transaction', hint: 'Quick add', kind: 'ACT',  action: () => { closeCmd(); openAddModal(); } },
+  { label: 'Observatory theme', hint: 'Dark',    kind: 'THEME', action: () => setTheme('observatory') },
+  { label: 'Greenhouse theme',  hint: 'Light',   kind: 'THEME', action: () => setTheme('greenhouse') },
+  { label: 'Vault theme',       hint: 'OLED',    kind: 'THEME', action: () => setTheme('vault') },
+];
+
+let cmdActive = 0;
+
+function renderCmd(q) {
+  const filtered = q
+    ? CMD_ITEMS.filter(i => i.label.toLowerCase().includes(q.toLowerCase()) || i.kind.toLowerCase().includes(q.toLowerCase()))
+    : CMD_ITEMS;
+  const list = document.getElementById('cmdList');
+  list.innerHTML = filtered.map((item, i) => `
+    <div class="cmdk-item ${i === 0 ? 'active' : ''}" data-idx="${i}"
+         onclick="${item.url ? `location.href='${item.url}'` : `(${item.action.toString()})()`}">
+      <span>${item.label}</span>
+      <span style="color:var(--text-faint);font-size:11px">${item.hint}</span>
+      <span class="cmdk-kind">${item.kind}</span>
+    </div>`).join('');
+  cmdActive = 0;
+}
+
+function openCmd() {
+  document.getElementById('cmdScrim').classList.remove('hidden');
+  const inp = document.getElementById('cmdInput');
+  inp.value = '';
+  renderCmd('');
+  inp.focus();
+}
+function closeCmd() { document.getElementById('cmdScrim').classList.add('hidden'); }
+
+document.getElementById('cmdInput').addEventListener('input', e => renderCmd(e.target.value));
+document.getElementById('cmdInput').addEventListener('keydown', e => {
+  const items = document.querySelectorAll('.cmdk-item');
+  if (e.key === 'ArrowDown') { e.preventDefault(); cmdActive = Math.min(cmdActive+1, items.length-1); }
+  if (e.key === 'ArrowUp')   { e.preventDefault(); cmdActive = Math.max(cmdActive-1, 0); }
+  items.forEach((el, i) => el.classList.toggle('active', i === cmdActive));
+  if (e.key === 'Enter' && items[cmdActive]) items[cmdActive].click();
+});
+
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); openCmd(); }
+});
+
+// Keyboard shortcuts: G + letter navigation
+let gPressed = false;
+document.addEventListener('keydown', e => {
+  if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+  if (e.key === 'g') { gPressed = true; setTimeout(() => gPressed = false, 1000); return; }
+  if (gPressed) {
+    const map = { d: '/', t: '/transactions', n: '/net-income', r: '/reports', a: '/accounts', i: '/import', l: '/merchant-rules' };
+    if (map[e.key]) { location.href = map[e.key]; gPressed = false; }
+  }
+});
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

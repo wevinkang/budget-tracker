@@ -1,43 +1,80 @@
-{% extends 'base.html' %}
-{% block title %}Merchant Rules{% endblock %}
+{% extends "base.html" %}
+{% from "macros.html" import icon %}
+{% block title %}Rules — Budget // Lux{% endblock %}
+{% block topbar_title %}Rules{% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center mb-3">
-  <h5 class="mb-0">Merchant Rules</h5>
-  <span class="text-muted small ms-3">Patterns learned from manual edits — applied automatically on import</span>
+<div class="screen-header">
+  <div>
+    <div class="screen-title">
+      Merchant Rules
+      <span class="mono faint" style="font-size:12px;letter-spacing:0.08em;margin-left:10px">/ {{ rules|length }} patterns</span>
+    </div>
+    <div class="screen-sub">PATTERNS LEARNED FROM MANUAL EDITS · <span class="accent">APPLIED AUTOMATICALLY ON IMPORT</span></div>
+  </div>
+</div>
+
+<div class="tx-toolbar">
+  <div class="tx-search">
+    <span class="ic">{{ icon('search', 14) }}</span>
+    <input class="input" id="ruleSearch" placeholder="Search patterns or categories…" oninput="filterRules(this.value)" style="font-size:12px">
+  </div>
+  <div class="spacer"></div>
+  <span class="mono faint" style="font-size:10px;letter-spacing:0.14em">Match order: specificity descending</span>
 </div>
 
 {% if rules %}
-<div class="card">
-  <div class="table-responsive">
-    <table class="table table-sm table-hover mb-0 small">
-      <thead class="table-light">
-        <tr>
-          <th>Pattern</th>
-          <th>Category</th>
-          <th>Saved</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for rule in rules %}
-        <tr>
-          <td class="font-monospace">{{ rule.pattern }}</td>
-          <td>{{ rule.category }}</td>
-          <td class="text-muted">{{ rule.created_at[:10] }}</td>
-          <td class="text-end">
-            <form method="post" action="/merchant-rules/{{ rule.id }}/delete" style="display:inline">
-              <button class="btn btn-xs btn-outline-danger py-0 px-1"
-                      onclick="return confirm('Delete this rule?')">Delete</button>
+<div class="panel" style="border-top:0">
+  <table class="data" id="rulesTable">
+    <thead>
+      <tr>
+        <th style="width:40px">#</th>
+        <th>Pattern</th>
+        <th style="width:240px">Category</th>
+        <th style="width:140px">Saved</th>
+        <th style="width:120px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rule in rules %}
+      <tr class="rule-row" data-pattern="{{ rule.pattern|lower }}" data-category="{{ rule.category|lower }}">
+        <td class="mono faint">{{ '%03d'|format(loop.index) }}</td>
+        <td class="mono">
+          <span class="accent-c">/</span>{{ rule.pattern }}<span class="accent-c">/i</span>
+        </td>
+        <td><span class="acct-chip"><span class="d"></span>{{ rule.category }}</span></td>
+        <td class="mono faint" style="font-size:10px">{{ rule.created_at[:10] }}</td>
+        <td>
+          <div class="row-actions" style="opacity:1">
+            <form method="post" action="/merchant-rules/{{ rule.id }}/delete" style="display:inline"
+                  onsubmit="return confirm('Delete this rule?')">
+              <button type="submit" class="btn small ghost danger">REMOVE</button>
             </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% else %}
-<p class="text-muted">No rules saved yet. Edit a transaction and check "Remember for future imports" to create one.</p>
+<div class="panel" style="border-top:0">
+  <div style="padding:40px;text-align:center;font-family:var(--mono);font-size:11px;letter-spacing:0.14em;color:var(--text-faint)">
+    ◇ NO RULES SAVED YET<br>
+    <span style="font-size:10px;margin-top:8px;display:block;color:var(--text-ghost)">Edit a transaction and check "Remember for future imports" to create one.</span>
+  </div>
+</div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterRules(q) {
+  const term = q.toLowerCase();
+  document.querySelectorAll('.rule-row').forEach(row => {
+    const match = !term || row.dataset.pattern.includes(term) || row.dataset.category.includes(term);
+    row.style.display = match ? '' : 'none';
+  });
+}
+</script>
 {% endblock %}

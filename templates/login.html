@@ -1,36 +1,55 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login — Budget Tracker</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <title>Login — Budget // Lux</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script>(function(){ var t=localStorage.getItem('budget-theme')||'observatory'; document.documentElement.setAttribute('data-theme',t); })();</script>
 </head>
-<body class="d-flex align-items-center justify-content-center" style="min-height:100vh">
+<body>
 
-<div class="card" style="width:340px">
-  <div class="card-body p-4">
-    <h5 class="card-title mb-4 text-center fw-bold">💰 Budget Tracker</h5>
-
-    {% with messages = get_flashed_messages() %}
-    {% if messages %}
-      {% for msg in messages %}
-      <div class="alert alert-danger py-2 small">{{ msg }}</div>
-      {% endfor %}
-    {% endif %}
-    {% endwith %}
-
-    <form method="post">
-      <div class="mb-3">
-        <label class="form-label small">Password</label>
-        <input type="password" name="password" class="form-control" autofocus required>
+<div class="login-shell">
+  <div class="login-card">
+    <div class="login-head">
+      <div class="logo">B</div>
+      <div>
+        <div style="color:var(--text);font-weight:600">BUDGET//LUX</div>
+        <div style="font-size:9px;margin-top:2px">SECURE ACCESS REQUIRED</div>
       </div>
-      <button type="submit" class="btn btn-primary w-100">Sign in</button>
-    </form>
+      <span class="chip pos" style="margin-left:auto"><span class="dot"></span>ONLINE</span>
+    </div>
+
+    <div class="login-body">
+      <div class="login-title">Authenticate</div>
+      <div class="login-sub">Enter your passphrase to continue</div>
+
+      {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for msg in messages %}
+        <div class="login-error">✕ {{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+      {% endwith %}
+
+      <form method="post">
+        <div class="login-field">
+          <label>Passphrase</label>
+          <input type="password" name="password" autofocus required placeholder="········">
+        </div>
+        <button type="submit" class="login-signin">AUTHENTICATE →</button>
+      </form>
+    </div>
+
+    <div class="login-foot">
+      <span>BUDGET//LUX v2.0</span>
+      <span>SELF-HOSTED · ENCRYPTED</span>
+    </div>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

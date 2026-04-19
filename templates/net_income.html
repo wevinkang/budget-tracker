@@ -1,52 +1,117 @@
 {% extends "base.html" %}
-{% block title %}Net Income — Budget Tracker{% endblock %}
+{% from "macros.html" import icon %}
+{% block title %}Net Income — Budget // Lux{% endblock %}
+{% block topbar_title %}Net Income{% endblock %}
 
 {% block content %}
-<h4 class="mb-3">Net Income — 2026</h4>
+{% set data_rows = summary | rejectattr('is_total', 'defined') | list %}
+{% set totals = summary | selectattr('is_total', 'defined') | first | default({}) %}
+{% set max_val = data_rows | map(attribute='income') | list + data_rows | map(attribute='expenses') | list %}
 
-<div class="table-responsive">
-<table class="table table-sm table-hover align-middle">
-  <thead class="table-dark">
-    <tr>
-      <th>Month</th>
-      <th class="text-end">Income</th>
-      <th class="text-end">Expenses</th>
-      <th class="text-end">Net</th>
-      <th class="text-end">Savings Rate</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in summary %}
-    {% if row.get('is_total') %}
-    </tbody>
-    <tfoot>
-    <tr class="table-dark fw-bold">
-    {% else %}
-    <tr class="{% if row.net < 0 %}table-danger{% elif row.net > 0 %}table-success bg-opacity-10{% endif %}">
-    {% endif %}
-      <td>{{ row.month }}</td>
-      <td class="text-end text-success">${{ '%.2f'|format(row.income) }}</td>
-      <td class="text-end text-danger">${{ '%.2f'|format(row.expenses) }}</td>
-      <td class="text-end {% if row.net >= 0 %}text-success{% else %}text-danger{% endif %} fw-semibold">
-        {% if row.net >= 0 %}+{% endif %}${{ '%.2f'|format(row.net) }}
-      </td>
-      <td class="text-end">
-        {% if row.income > 0 %}
-          <span class="{% if row.savings_rate >= 20 %}text-success{% elif row.savings_rate < 0 %}text-danger{% else %}text-warning{% endif %}">
-            {{ '%.1f'|format(row.savings_rate) }}%
-          </span>
-        {% else %}
-          —
-        {% endif %}
-      </td>
-    </tr>
-    {% if row.get('is_total') %}</tfoot>{% endif %}
-    {% endfor %}
-</table>
+<div class="screen-header">
+  <div>
+    <div class="screen-title">
+      Net Income
+      <span class="mono faint" style="font-size:12px;letter-spacing:0.08em;margin-left:10px">/ {{ year }}</span>
+    </div>
+    <div class="screen-sub">
+      YEAR-TO-DATE LEDGER · <span class="accent">{{ data_rows|length }} MONTHS OBSERVED</span>
+    </div>
+  </div>
 </div>
 
-<p class="text-muted small mt-2">
-  Income categories: Paycheck Income, Tax Income, Refund Income, Income.<br>
-  Everything else is counted as an expense.
-</p>
+<!-- YTD metric cards -->
+{% if totals %}
+<div class="metrics">
+  <div class="metric">
+    <div class="metric-label" style="color:var(--pos)"><span class="dot"></span><span style="color:var(--text-faint)">TOTAL INCOME YTD</span></div>
+    <div class="metric-value pos">${{ '%.2f'|format(totals.income) }}</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label" style="color:var(--neg)"><span class="dot"></span><span style="color:var(--text-faint)">TOTAL EXPENSES YTD</span></div>
+    <div class="metric-value neg">${{ '%.2f'|format(totals.expenses) }}</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label" style="color:var(--accent)"><span class="dot"></span><span style="color:var(--text-faint)">NET YTD</span></div>
+    <div class="metric-value {% if totals.net >= 0 %}accent-c{% else %}neg{% endif %}">
+      {{ '+' if totals.net >= 0 }}${{ '%.2f'|format(totals.net) }}
+    </div>
+  </div>
+  <div class="metric">
+    <div class="metric-label" style="color:var(--warn)"><span class="dot"></span><span style="color:var(--text-faint)">AVG SAVINGS RATE</span></div>
+    <div class="metric-value warn" style="color:var(--warn)">{{ '%.1f'|format(totals.savings_rate) }}%</div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Monthly breakdown -->
+<div class="panel bracketed">
+  <span class="bk-tl"></span><span class="bk-br"></span>
+  <div class="panel-head">
+    <span class="lbl"><span class="idx">[01]</span> Monthly Breakdown</span>
+    <a class="act" href="/transactions/export">EXPORT CSV →</a>
+  </div>
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width:160px">Month</th>
+        <th>Flow</th>
+        <th class="num" style="width:130px">Income</th>
+        <th class="num" style="width:130px">Expenses</th>
+        <th class="num" style="width:130px">Net</th>
+        <th class="num" style="width:110px">Savings</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set all_vals = [] %}
+      {% for row in summary if not row.get('is_total') %}
+        {% set _ = all_vals.append(row.income) %}
+        {% set _ = all_vals.append(row.expenses) %}
+      {% endfor %}
+      {% set mv = all_vals|max if all_vals else 1 %}
+
+      {% for row in summary %}
+      {% if row.get('is_total') %}
+      <tr style="background:var(--bg-elev-2);font-weight:600">
+        <td class="mono" style="font-size:11px;letter-spacing:0.12em">Σ TOTAL</td>
+        <td></td>
+        <td class="num pos">${{ '%.2f'|format(row.income) }}</td>
+        <td class="num neg">${{ '%.2f'|format(row.expenses) }}</td>
+        <td class="num {% if row.net >= 0 %}accent-c{% else %}neg{% endif %}">
+          {{ '+' if row.net >= 0 }}${{ '%.2f'|format(row.net) }}
+        </td>
+        <td class="num accent-c">{{ '%.1f'|format(row.savings_rate) }}%</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td>
+          <span class="mono faint" style="font-size:9px;letter-spacing:0.14em;margin-right:8px">{{ '%02d'|format(loop.index) }}</span>
+          {{ row.month }}
+        </td>
+        <td>
+          <div style="display:flex;flex-direction:column;gap:3px;width:180px">
+            <div style="height:4px;background:var(--pos);width:{{ (row.income / mv * 100)|round }}%;opacity:0.9"></div>
+            <div style="height:4px;background:var(--neg);width:{{ (row.expenses / mv * 100)|round }}%;opacity:0.9"></div>
+          </div>
+        </td>
+        <td class="num pos">${{ '%.2f'|format(row.income) }}</td>
+        <td class="num neg">${{ '%.2f'|format(row.expenses) }}</td>
+        <td class="num {% if row.net >= 0 %}pos{% else %}neg{% endif %}">
+          {{ '+' if row.net >= 0 }}${{ '%.2f'|format(row.net) }}
+        </td>
+        <td class="num {% if row.savings_rate >= 30 %}accent-c{% elif row.savings_rate > 0 %}dim{% else %}neg{% endif %}">
+          {{ '%.1f'|format(row.savings_rate) }}%
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div style="margin:14px;padding:12px;border:1px solid var(--line-soft);background:var(--bg-elev-2);font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--text-faint);line-height:1.7">
+    <div style="color:var(--text-dim);letter-spacing:0.16em;text-transform:uppercase;margin-bottom:6px">◇ INCOME CLASSIFICATION</div>
+    <div>› Paycheck Income · Tax Income · Refund Income · Income</div>
+    <div style="margin-top:4px">› All other accounts classified as EXPENSE.</div>
+  </div>
+</div>
 {% endblock %}

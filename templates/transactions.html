@@ -1,255 +1,175 @@
 {% extends "base.html" %}
-{% block title %}Transactions — Budget Tracker{% endblock %}
+{% from "macros.html" import icon %}
+{% block title %}Transactions — Budget // Lux{% endblock %}
+{% block topbar_title %}Transactions{% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center mb-3 gap-2">
-  <h4 class="mb-0">Transactions</h4>
-  <button class="btn btn-sm btn-success ms-auto" data-bs-toggle="modal" data-bs-target="#txnModal" onclick="openAddModal()">
-    + Add Transaction
-  </button>
+{% set income_accts = ('Paycheck Income','Tax Income','Refund Income','Income') %}
+{% set page_income  = transactions|selectattr('account','in',income_accts)|sum(attribute='amount') %}
+{% set page_expense = transactions|rejectattr('account','in',income_accts)|sum(attribute='amount') %}
+
+<div class="screen-header">
+  <div>
+    <div class="screen-title">
+      Transactions
+      <span class="mono faint" style="font-size:12px;letter-spacing:0.08em;margin-left:10px">/ {{ total_count }} records</span>
+    </div>
+    <div class="screen-sub">
+      <span class="accent">${{ '%.2f'|format(total) }}</span> NET &nbsp;·&nbsp;
+      IN <span style="color:var(--pos)">${{ '%.2f'|format(page_income) }}</span> &nbsp;·&nbsp;
+      OUT <span style="color:var(--neg)">${{ '%.2f'|format(page_expense) }}</span>
+    </div>
+  </div>
+  <div class="screen-actions">
+    <a href="/transactions/export?month={{ selected_month }}&account={{ selected_account }}&expense_type={{ selected_expense_type }}&search={{ search }}"
+       class="btn">{{ icon('download', 12) }} Export CSV</a>
+    <button class="btn primary" onclick="openAddModal('/transactions')">
+      {{ icon('plus', 12) }} Add Transaction
+    </button>
+  </div>
 </div>
 
-<!-- Filters -->
-<form method="get" class="row g-2 mb-3" id="filterForm">
-  <div class="col-auto">
-    <select name="month" class="form-select form-select-sm" onchange="this.form.submit()">
-      <option value="">All Months</option>
+<!-- Toolbar -->
+<form method="get" id="filterForm">
+  <div class="tx-toolbar">
+    <div class="tx-search">
+      <span class="ic">{{ icon('search', 14) }}</span>
+      <input class="input" name="search" placeholder="Search notes, accounts…" value="{{ search }}" style="font-size:12px">
+    </div>
+    <select name="month" class="select" style="width:auto" onchange="this.form.submit()">
+      <option value="">ALL MONTHS</option>
       {% for m in months %}
-      <option value="{{ m }}" {% if m == selected_month %}selected{% endif %}>{{ m }}</option>
+      <option value="{{ m }}" {% if m == selected_month %}selected{% endif %}>{{ m|upper }}</option>
       {% endfor %}
     </select>
-  </div>
-  <div class="col-auto">
-    <select name="account" class="form-select form-select-sm" onchange="this.form.submit()">
-      <option value="">All Accounts</option>
+    <select name="account" class="select" style="width:auto" onchange="this.form.submit()">
+      <option value="">ALL ACCOUNTS</option>
       {% for a in accounts %}
       <option value="{{ a.name }}" {% if a.name == selected_account %}selected{% endif %}>{{ a.name }}</option>
       {% endfor %}
     </select>
-  </div>
-  <div class="col-auto">
-    <select name="expense_type" class="form-select form-select-sm" onchange="this.form.submit()">
-      <option value="">Need &amp; Want</option>
-      <option value="Need" {% if selected_expense_type == 'Need' %}selected{% endif %}>Need</option>
-      <option value="Want" {% if selected_expense_type == 'Want' %}selected{% endif %}>Want</option>
+    <select name="expense_type" class="select" style="width:auto" onchange="this.form.submit()">
+      <option value="">NEED & WANT</option>
+      <option value="Need" {% if selected_expense_type == 'Need' %}selected{% endif %}>NEED</option>
+      <option value="Want" {% if selected_expense_type == 'Want' %}selected{% endif %}>WANT</option>
     </select>
-  </div>
-  <div class="col-auto d-flex gap-1">
-    <input type="text" name="search" class="form-control form-control-sm" placeholder="Search notes…" value="{{ search }}">
-    <button type="submit" class="btn btn-sm btn-outline-secondary">Go</button>
     {% if selected_month or selected_account or selected_expense_type or search %}
-    <a href="/transactions" class="btn btn-sm btn-outline-danger">✕</a>
+    <a href="/transactions" class="btn ghost">RESET</a>
     {% endif %}
+    <div class="spacer"></div>
+    <button type="submit" class="btn">{{ icon('filter', 12) }} Filter</button>
+    <span class="mono faint" style="font-size:10px;letter-spacing:0.14em">⌘K palette</span>
   </div>
 </form>
 
-<!-- Table -->
-<div class="table-responsive">
-<table class="table table-sm table-hover align-middle small">
-  <thead class="table-dark">
-    <tr>
-      <th>Date</th>
-      <th>Account</th>
-      <th class="text-end">Amount</th>
-      <th>Notes</th>
-      <th>Type</th>
-      <th>Month</th>
-      <th>Bank</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for t in transactions %}
-    <tr id="row-{{ t.id }}">
-      <td class="text-nowrap">{{ t.date }}</td>
-      <td>
-        {% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}
-          <span class="badge bg-success">{{ t.account }}</span>
-        {% else %}
-          <span class="badge account-badge">{{ t.account }}</span>
-        {% endif %}
-      </td>
-      <td class="text-end fw-semibold text-nowrap">
-        {% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}
-          <span class="text-success">+${{ '%.2f'|format(t.amount) }}</span>
-        {% else %}
-          ${{ '%.2f'|format(t.amount) }}
-        {% endif %}
-      </td>
-      <td>{{ t.notes }}</td>
-      <td>
-        {% if t.expense_type == 'Need' %}
-          <span class="badge bg-secondary">Need</span>
-        {% elif t.expense_type == 'Want' %}
-          <span class="badge bg-warning text-dark">Want</span>
-        {% endif %}
-      </td>
-      <td>{{ t.month }}</td>
-      <td class="text-muted">{{ t.bank }}</td>
-      <td class="text-nowrap">
-        <button class="btn btn-xs btn-outline-primary py-0 px-1 edit-btn"
-                data-id="{{ t.id }}"
-                data-date="{{ t.date }}"
-                data-account="{{ t.account|e }}"
-                data-amount="{{ t.amount }}"
-                data-notes="{{ t.notes|e }}"
-                data-type="{{ t.expense_type|e }}"
-                data-month="{{ t.month|e }}"
-                data-bank="{{ t.bank|e }}">
-          Edit
-        </button>
-        <button class="btn btn-xs btn-outline-danger py-0 px-1" onclick="deleteRow({{ t.id }})">Del</button>
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="8" class="text-center text-muted py-4">No transactions found.</td></tr>
-    {% endfor %}
-  </tbody>
-  {% if transactions %}
-  <tfoot class="table-secondary fw-bold">
-    <tr>
-      <td colspan="2">{{ transactions|length }} transaction(s)</td>
-      <td class="text-end">${{ '%.2f'|format(total) }}</td>
-      <td colspan="5"></td>
-    </tr>
-  </tfoot>
-  {% endif %}
-</table>
+<div class="panel" style="border-top:0">
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width:110px">Date</th>
+        <th>Account</th>
+        <th>Notes</th>
+        <th style="width:90px">Type</th>
+        <th style="width:80px" class="d-md">Bank</th>
+        <th style="text-align:right;width:120px">Amount</th>
+        <th style="width:72px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in transactions %}
+      <tr id="row-{{ t.id }}">
+        <td class="mono faint">{{ t.date }}</td>
+        <td>
+          <span class="acct-chip">
+            <span class="d" style="background:{% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}var(--pos){% else %}var(--accent){% endif %}"></span>
+            {{ t.account }}
+          </span>
+        </td>
+        <td class="dim">{{ t.notes }}</td>
+        <td>
+          {% if t.expense_type == 'Need' %}<span class="badge-need">Need</span>
+          {% elif t.expense_type == 'Want' %}<span class="badge-want">Want</span>
+          {% elif t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}<span class="badge-income">Income</span>
+          {% endif %}
+        </td>
+        <td class="mono faint d-md">{{ t.bank or '' }}</td>
+        <td class="num {% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}pos{% else %}neg{% endif %}">
+          {{ '+' if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') else '-' }}${{ '%.2f'|format(t.amount) }}
+        </td>
+        <td>
+          <div class="row-actions">
+            <button class="btn small ghost" onclick="editRow(this)"
+              data-id="{{ t.id }}"
+              data-date="{{ t.date }}"
+              data-account="{{ t.account|e }}"
+              data-amount="{{ t.amount }}"
+              data-notes="{{ t.notes|e }}"
+              data-type="{{ t.expense_type|e }}"
+              data-month="{{ t.month|e }}"
+              data-bank="{{ t.bank|e }}">
+              {{ icon('edit', 11) }}
+            </button>
+            <button class="btn small ghost danger" onclick="deleteRow({{ t.id }})">{{ icon('trash', 11) }}</button>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="7" style="text-align:center;padding:40px;color:var(--text-faint);font-family:var(--mono);font-size:11px;letter-spacing:0.14em">
+          ◇ NO RECORDS MATCH QUERY
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    {% if transactions %}
+    <tfoot>
+      <tr style="background:var(--bg-elev-2)">
+        <td colspan="2" class="mono" style="padding:9px 12px;font-size:10px;letter-spacing:0.1em;color:var(--text-faint)">
+          {{ transactions|length }} of {{ total_count }} records
+        </td>
+        <td colspan="3"></td>
+        <td class="num" style="font-weight:600">${{ '%.2f'|format(total) }}</td>
+        <td></td>
+      </tr>
+    </tfoot>
+    {% endif %}
+  </table>
 </div>
 
-<!-- Add/Edit Modal -->
-<div class="modal fade" id="txnModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="modalTitle">Add Transaction</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <form id="txnForm">
-        <div class="modal-body row g-2">
-          <input type="hidden" id="txnId">
-          <div class="col-6">
-            <label class="form-label small mb-1">Date</label>
-            <input type="date" class="form-control form-control-sm" id="f_date" name="date" required onchange="autoFillMonth()">
-          </div>
-          <div class="col-6">
-            <label class="form-label small mb-1">Month</label>
-            <input type="text" class="form-control form-control-sm" id="f_month" name="month" placeholder="auto">
-          </div>
-          <div class="col-12">
-            <label class="form-label small mb-1">Account</label>
-            <select class="form-select form-select-sm" id="f_account" name="account">
-              <option value="">— select —</option>
-              {% for a in accounts %}
-              <option value="{{ a.name }}">{{ a.name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="col-6">
-            <label class="form-label small mb-1">Amount ($)</label>
-            <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="f_amount" name="amount" required>
-          </div>
-          <div class="col-6">
-            <label class="form-label small mb-1">Expense Type</label>
-            <select class="form-select form-select-sm" id="f_type" name="expense_type">
-              <option value="">—</option>
-              <option value="Need">Need</option>
-              <option value="Want">Want</option>
-            </select>
-          </div>
-          <div class="col-8">
-            <label class="form-label small mb-1">Notes</label>
-            <input type="text" class="form-control form-control-sm" id="f_notes" name="notes">
-          </div>
-          <div class="col-4">
-            <label class="form-label small mb-1">Bank</label>
-            <input type="text" class="form-control form-control-sm" id="f_bank" name="bank" placeholder="optional">
-          </div>
-        </div>
-        <div class="modal-footer py-2">
-          <div id="rememberWrap" class="me-auto d-none">
-            <div class="form-check form-check-inline mb-0">
-              <input class="form-check-input" type="checkbox" id="f_remember" name="remember" value="1">
-              <label class="form-check-label small text-muted" for="f_remember">Remember for future imports</label>
-            </div>
-          </div>
-          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-primary" id="modalSubmitBtn">Save</button>
-        </div>
-      </form>
-    </div>
-  </div>
+{% if total_pages > 1 %}
+<div class="pagination">
+  <span class="info">Page {{ page }} of {{ total_pages }}</span>
+  <a href="{{ page_url(1) }}" class="{% if page == 1 %}disabled{% endif %}">«</a>
+  <a href="{{ page_url(page - 1) }}" class="{% if page == 1 %}disabled{% endif %}">‹</a>
+  {% for p in range([1, page - 2]|max, [total_pages + 1, page + 3]|min) %}
+  {% if p == page %}<span class="active">{{ p }}</span>
+  {% else %}<a href="{{ page_url(p) }}">{{ p }}</a>{% endif %}
+  {% endfor %}
+  <a href="{{ page_url(page + 1) }}" class="{% if page == total_pages %}disabled{% endif %}">›</a>
+  <a href="{{ page_url(total_pages) }}" class="{% if page == total_pages %}disabled{% endif %}">»</a>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
-const MONTHS = ['January','February','March','April','May','June',
-                'July','August','September','October','November','December'];
-
-function autoFillMonth() {
-  const d = document.getElementById('f_date').value;
-  if (d) {
-    const month = MONTHS[parseInt(d.split('-')[1]) - 1];
-    document.getElementById('f_month').value = month;
-  }
-}
-
-const E_TRANSFER_RE = /e.?transfer|interac/i;
-
-function openAddModal() {
-  document.getElementById('modalTitle').textContent = 'Add Transaction';
-  document.getElementById('modalSubmitBtn').textContent = 'Add';
-  document.getElementById('txnId').value = '';
-  document.getElementById('txnForm').reset();
-  document.getElementById('rememberWrap').classList.add('d-none');
-  // Default to today
-  document.getElementById('f_date').value = new Date().toISOString().split('T')[0];
-  autoFillMonth();
-}
-
-document.querySelectorAll('.edit-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.getElementById('modalTitle').textContent = 'Edit Transaction';
-    document.getElementById('modalSubmitBtn').textContent = 'Save';
-    document.getElementById('txnId').value        = btn.dataset.id;
-    document.getElementById('f_date').value       = btn.dataset.date;
-    document.getElementById('f_account').value    = btn.dataset.account;
-    document.getElementById('f_amount').value     = btn.dataset.amount;
-    document.getElementById('f_notes').value      = btn.dataset.notes;
-    document.getElementById('f_type').value       = btn.dataset.type;
-    document.getElementById('f_month').value      = btn.dataset.month;
-    document.getElementById('f_bank').value       = btn.dataset.bank;
-    // Show "remember" checkbox only for non-e-transfer edits
-    const isETransfer = E_TRANSFER_RE.test(btn.dataset.notes || '');
-    document.getElementById('rememberWrap').classList.toggle('d-none', isETransfer);
-    document.getElementById('f_remember').checked = false;
-    new bootstrap.Modal(document.getElementById('txnModal')).show();
+function editRow(btn) {
+  openEditModal({
+    id:      btn.dataset.id,
+    date:    btn.dataset.date,
+    account: btn.dataset.account,
+    amount:  btn.dataset.amount,
+    notes:   btn.dataset.notes,
+    type:    btn.dataset.type,
+    month:   btn.dataset.month,
+    bank:    btn.dataset.bank,
   });
-});
-
-document.getElementById('txnForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const id = document.getElementById('txnId').value;
-  const form = new FormData(this);
-  const url = id ? `/transactions/${id}/edit` : '/transactions/add';
-
-  if (id) {
-    // AJAX edit — update row in place then reload
-    await fetch(url, { method: 'POST', body: form });
-    location.reload();
-  } else {
-    // POST add — let the server redirect with flash
-    const resp = await fetch(url, { method: 'POST', body: form, redirect: 'follow' });
-    location.href = resp.url;
-  }
-});
+}
 
 async function deleteRow(id) {
   if (!confirm('Delete this transaction?')) return;
   await fetch(`/transactions/${id}/delete`, { method: 'POST' });
   document.getElementById(`row-${id}`).remove();
-  // Update count/total — simplest is a reload
   location.reload();
 }
 </script>

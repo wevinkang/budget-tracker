@@ -1,172 +1,150 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — Budget Tracker{% endblock %}
+{% from "macros.html" import icon %}
+{% block title %}Overview — Budget // Lux{% endblock %}
+{% block topbar_title %}Overview{% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center mb-4">
+<div class="screen-header">
   <div>
-    <h3 class="mb-0 fw-bold">Dashboard</h3>
-    <div class="text-muted small">{{ month }}</div>
+    <div class="screen-title">Overview</div>
+    <div class="screen-sub">
+      <span class="accent">{{ month|upper }}/{{ _stats.ytd_net and '2026' or '2026' }}</span>
+      &nbsp;·&nbsp; LEDGER {{ _stats.txn_count }} ENTRIES
+    </div>
   </div>
-  <a href="/transactions" class="btn btn-success ms-auto">
-    <i class="bi bi-plus-lg me-1"></i>Add Transaction
-  </a>
+  <div class="screen-actions">
+    <form method="get" style="display:flex;align-items:center">
+      <select name="month" class="select" style="width:auto" onchange="this.form.submit()">
+        {% for m in months %}
+        <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m|upper }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    <button class="btn primary" onclick="openAddModal('/?month={{ month }}')">
+      {{ icon('plus', 12) }} Add Transaction
+    </button>
+  </div>
 </div>
 
-<!-- Stat cards -->
-<div class="row g-3 mb-4">
-  <div class="col-6 col-lg-3">
-    <div class="card stat-card stat-income h-100">
-      <div class="card-body d-flex align-items-start gap-2">
-        <div class="flex-grow-1">
-          <div class="stat-label">Income</div>
-          <div class="stat-value text-success">${{ '%.2f'|format(total_income) }}</div>
-        </div>
-        <i class="bi bi-arrow-down-circle stat-icon text-success"></i>
-      </div>
-    </div>
+<!-- Metric cards -->
+<div class="metrics">
+  <div class="metric">
+    <div class="metric-label" style="color:var(--pos)"><span class="dot"></span><span style="color:var(--text-faint)">INCOME // 01</span></div>
+    <div class="metric-value pos">${{ '%.2f'|format(total_income) }}</div>
+    <div class="metric-delta">{{ icon('arrowDown', 10) }} this month</div>
+    <div class="metric-spark"><canvas id="sparkIncome" width="72" height="22"></canvas></div>
   </div>
-  <div class="col-6 col-lg-3">
-    <div class="card stat-card stat-expense h-100">
-      <div class="card-body d-flex align-items-start gap-2">
-        <div class="flex-grow-1">
-          <div class="stat-label">Expenses</div>
-          <div class="stat-value text-danger">${{ '%.2f'|format(total_expense) }}</div>
-        </div>
-        <i class="bi bi-arrow-up-circle stat-icon text-danger"></i>
-      </div>
-    </div>
+  <div class="metric">
+    <div class="metric-label" style="color:var(--neg)"><span class="dot"></span><span style="color:var(--text-faint)">EXPENSES // 02</span></div>
+    <div class="metric-value neg">${{ '%.2f'|format(total_expense) }}</div>
+    <div class="metric-delta">{{ icon('arrowDown', 10) }} this month</div>
+    <div class="metric-spark"><canvas id="sparkExpense" width="72" height="22"></canvas></div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="metric">
     {% set net_pos = net >= 0 %}
-    <div class="card stat-card {% if net_pos %}stat-net-pos{% else %}stat-net-neg{% endif %} h-100">
-      <div class="card-body d-flex align-items-start gap-2">
-        <div class="flex-grow-1">
-          <div class="stat-label">Net</div>
-          <div class="stat-value {% if net_pos %}text-primary{% else %}text-warning{% endif %}">
-            {% if net_pos %}+{% endif %}${{ '%.2f'|format(net) }}
-          </div>
-        </div>
-        <i class="bi bi-{% if net_pos %}piggy-bank{% else %}exclamation-circle{% endif %} stat-icon {% if net_pos %}text-primary{% else %}text-warning{% endif %}"></i>
-      </div>
+    <div class="metric-label" style="color:var(--accent)"><span class="dot"></span><span style="color:var(--text-faint)">NET // 03</span></div>
+    <div class="metric-value {% if net_pos %}accent-c{% else %}neg{% endif %}">
+      {{ '+' if net_pos }}${{ '%.2f'|format(net|abs) }}
     </div>
+    <div class="metric-delta">{{ icon('arrowDown', 10) }} income − expenses</div>
+    <div class="metric-spark"><canvas id="sparkNet" width="72" height="22"></canvas></div>
   </div>
-  <div class="col-6 col-lg-3">
-    {% set sr_good = savings_pct >= 20 %}
-    <div class="card stat-card {% if sr_good %}stat-savings-good{% else %}stat-savings-low{% endif %} h-100">
-      <div class="card-body d-flex align-items-start gap-2">
-        <div class="flex-grow-1">
-          <div class="stat-label">Savings Rate</div>
-          <div class="stat-value {% if savings_pct >= 20 %}text-success{% elif savings_pct < 0 %}text-danger{% else %}text-warning{% endif %}">
-            {{ '%.1f'|format(savings_pct) }}%
-          </div>
-        </div>
-        <i class="bi bi-{% if sr_good %}star{% else %}star-half{% endif %} stat-icon {% if sr_good %}text-success{% else %}text-warning{% endif %}"></i>
-      </div>
+  <div class="metric">
+    <div class="metric-label" style="color:var(--warn)"><span class="dot"></span><span style="color:var(--text-faint)">SAVINGS RATE // 04</span></div>
+    <div class="metric-value {% if savings_pct >= 20 %}pos{% elif savings_pct < 0 %}neg{% else %}warn{% endif %}">
+      {{ '%.1f'|format(savings_pct) }}%
     </div>
+    <div class="metric-delta">{{ icon('arrowDown', 10) }} target &gt; 20%</div>
+    <div class="metric-spark"><canvas id="sparkSavings" width="72" height="22"></canvas></div>
   </div>
 </div>
 
-<!-- Trend + Top Categories -->
-<div class="row g-3 mb-4">
-  <div class="col-lg-7">
-    <div class="card h-100">
-      <div class="card-header py-2 fw-semibold small">
-        <i class="bi bi-bar-chart me-1"></i>6-Month Trend
+<!-- Cash flow + Top categories -->
+<div class="dash-grid">
+  <div class="panel bracketed">
+    <span class="bk-tl"></span><span class="bk-br"></span>
+    <div class="panel-head">
+      <span class="lbl"><span class="idx">[05]</span> Cash Flow · Trailing Months</span>
+      <span class="act">EXPAND →</span>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase">
+        <span class="chip pos"><span class="dot"></span>Income</span>
+        <span class="chip neg"><span class="dot"></span>Expenses</span>
       </div>
-      <div class="card-body">
-        <canvas id="trendChart" style="max-height:220px"></canvas>
-      </div>
+      <div class="chart-wrap"><canvas id="trendChart" style="max-height:200px"></canvas></div>
     </div>
   </div>
-  <div class="col-lg-5">
-    <div class="card h-100">
-      <div class="card-header py-2 fw-semibold small">
-        <i class="bi bi-list-ol me-1"></i>Top Categories — {{ month }}
-      </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <span class="lbl"><span class="idx">[06]</span> Top Categories · {{ month }}</span>
+      <a class="act" href="/reports">FULL REPORT →</a>
+    </div>
+    <div class="panel-body" style="padding:0">
       {% if category_data %}
-      <div class="table-responsive">
-        <table class="table table-sm table-hover mb-0 small align-middle">
-          <tbody>
-            {% for row in category_data %}
-            <tr>
-              <td>
-                <span class="cat-dot me-1" style="background:{{ ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f'][loop.index0] }}"></span>
-                {{ row.account }}
-              </td>
-              <td class="text-end fw-semibold">${{ '%.2f'|format(row.total) }}</td>
-              <td style="width:80px">
-                <div class="progress" style="height:5px">
-                  <div class="progress-bar" style="width:{{ row.pct }}%;background:{{ ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f'][loop.index0] }}"></div>
-                </div>
-              </td>
-              <td class="text-muted text-end" style="width:40px">{{ '%.0f'|format(row.pct) }}%</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      {% for row in category_data %}
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:{% if not loop.last %}1px solid var(--line-soft){% else %}none{% endif %}">
+        <span class="mono faint" style="font-size:9px;width:18px;letter-spacing:0.1em">{{ '%02d'|format(loop.index) }}</span>
+        <span style="flex:1;font-size:12px">{{ row.account }}</span>
+        <div style="width:72px;height:3px;background:var(--bg-elev-2);border:1px solid var(--line-soft);position:relative">
+          <div style="position:absolute;top:0;left:0;height:100%;width:{{ row.pct|round }}%;background:var(--accent)"></div>
+        </div>
+        <span class="mono tabular" style="width:80px;text-align:right;font-size:12px">${{ '%.2f'|format(row.total) }}</span>
+        <span class="mono faint" style="width:36px;text-align:right;font-size:10px">{{ '%.0f'|format(row.pct) }}%</span>
       </div>
-      <div class="card-footer py-2 text-end">
-        <a href="/reports" class="small text-muted">Full report <i class="bi bi-arrow-right"></i></a>
-      </div>
+      {% endfor %}
       {% else %}
-      <div class="card-body text-muted small">No expenses recorded for {{ month }}.</div>
+      <div style="padding:20px 14px;color:var(--text-faint);font-family:var(--mono);font-size:11px;letter-spacing:0.12em">◇ NO EXPENSES FOR {{ month|upper }}</div>
       {% endif %}
     </div>
   </div>
 </div>
 
-<!-- Recent transactions -->
-<div class="card">
-  <div class="card-header py-2 fw-semibold small d-flex align-items-center">
-    <i class="bi bi-clock-history me-1"></i>Recent Transactions
-    <a href="/transactions" class="ms-auto btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem">
-      View all <i class="bi bi-arrow-right"></i>
-    </a>
+<!-- Recent activity -->
+<div class="panel">
+  <div class="panel-head">
+    <span class="lbl"><span class="idx">[07]</span> Recent Activity</span>
+    <a class="act" href="/transactions">VIEW ALL →</a>
   </div>
-  <div class="table-responsive">
-    <table class="table table-sm table-hover align-middle small mb-0">
-      <thead class="table-dark">
-        <tr>
-          <th>Date</th>
-          <th>Account</th>
-          <th class="text-end">Amount</th>
-          <th>Notes</th>
-          <th>Type</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for t in recent %}
-        <tr>
-          <td class="text-nowrap text-muted">{{ t.date }}</td>
-          <td>
-            {% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}
-              <span class="badge bg-success">{{ t.account }}</span>
-            {% else %}
-              <span class="badge account-badge">{{ t.account }}</span>
-            {% endif %}
-          </td>
-          <td class="text-end fw-semibold text-nowrap">
-            {% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}
-              <span class="text-success">+${{ '%.2f'|format(t.amount) }}</span>
-            {% else %}
-              ${{ '%.2f'|format(t.amount) }}
-            {% endif %}
-          </td>
-          <td class="text-truncate" style="max-width:200px">{{ t.notes }}</td>
-          <td>
-            {% if t.expense_type == 'Need' %}
-              <span class="badge bg-secondary" style="font-size:0.7rem">Need</span>
-            {% elif t.expense_type == 'Want' %}
-              <span class="badge bg-warning text-dark" style="font-size:0.7rem">Want</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5" class="text-center text-muted py-4">No transactions yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width:110px">Date</th>
+        <th>Account</th>
+        <th>Notes</th>
+        <th style="width:90px">Type</th>
+        <th style="width:80px">Bank</th>
+        <th style="text-align:right;width:120px">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in recent %}
+      <tr>
+        <td class="mono faint">{{ t.date }}</td>
+        <td>
+          <span class="acct-chip">
+            <span class="d" style="background:{% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}var(--pos){% else %}var(--accent){% endif %}"></span>
+            {{ t.account }}
+          </span>
+        </td>
+        <td class="dim">{{ t.notes }}</td>
+        <td>
+          {% if t.expense_type == 'Need' %}<span class="badge-need">Need</span>
+          {% elif t.expense_type == 'Want' %}<span class="badge-want">Want</span>
+          {% elif t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}<span class="badge-income">Income</span>
+          {% endif %}
+        </td>
+        <td class="mono faint">{{ t.bank or '' }}</td>
+        <td class="num {% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}pos{% else %}neg{% endif %}">
+          {{ '+' if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') else '-' }}${{ '%.2f'|format(t.amount) }}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-faint);font-family:var(--mono);font-size:11px;letter-spacing:0.14em">◇ NO TRANSACTIONS YET</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endblock %}
 
@@ -174,47 +152,73 @@
 <script>
 const TREND = {{ trend | tojson }};
 
-if (TREND.length) {
-  const labels  = TREND.map(r => r.month);
-  const incomes = TREND.map(r => r.income);
-  const expenses = TREND.map(r => r.expenses);
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 
+// Sparklines
+function drawSparkline(id, data, color) {
+  const canvas = document.getElementById(id);
+  if (!canvas || !data.length) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const min = Math.min(...data), max = Math.max(...data);
+  const range = max - min || 1;
+  const step = w / (data.length - 1);
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = i * step;
+    const y = h - ((v - min) / range) * h * 0.85 - h * 0.05;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  // Terminal dot
+  const last = data.length - 1;
+  const lx = last * step;
+  const ly = h - ((data[last] - min) / range) * h * 0.85 - h * 0.05;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(lx, ly, 2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+if (TREND.length) {
+  const inc  = TREND.map(r => r.income);
+  const exp  = TREND.map(r => r.expenses);
+  const net  = TREND.map(r => r.income - r.expenses);
+  const sav  = TREND.map(r => r.income > 0 ? (r.income - r.expenses) / r.income * 100 : 0);
+
+  drawSparkline('sparkIncome',  inc,  cssVar('--pos'));
+  drawSparkline('sparkExpense', exp,  cssVar('--neg'));
+  drawSparkline('sparkNet',     net,  cssVar('--accent'));
+  drawSparkline('sparkSavings', sav,  cssVar('--warn'));
+
+  // Cash flow bar chart
   new Chart(document.getElementById('trendChart'), {
     type: 'bar',
     data: {
-      labels,
+      labels: TREND.map(r => r.month.slice(0,3).toUpperCase()),
       datasets: [
-        {
-          label: 'Income',
-          data: incomes,
-          backgroundColor: 'rgba(25,135,84,0.75)',
-          borderRadius: 4,
-        },
-        {
-          label: 'Expenses',
-          data: expenses,
-          backgroundColor: 'rgba(220,53,69,0.75)',
-          borderRadius: 4,
-        },
+        { label: 'Income',   data: inc, backgroundColor: cssVar('--pos')  + 'dd', borderRadius: 0, borderWidth: 0 },
+        { label: 'Expenses', data: exp, backgroundColor: cssVar('--neg')  + 'dd', borderRadius: 0, borderWidth: 0 },
       ]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: true,
+      responsive: true, maintainAspectRatio: true,
       plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12, padding: 8 } },
-        tooltip: {
-          callbacks: {
-            label: ctx => ` $${ctx.parsed.y.toFixed(2)}`
-          }
-        }
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` $${ctx.parsed.y.toFixed(2)}` } }
       },
       scales: {
         y: {
-          ticks: { callback: v => '$' + v.toLocaleString() },
-          grid: { color: 'rgba(255,255,255,0.06)' }
+          ticks: { callback: v => '$' + (v/1000).toFixed(0)+'k', font: { family: 'JetBrains Mono', size: 9 }, color: cssVar('--text-ghost') },
+          grid: { color: cssVar('--line-soft') },
         },
-        x: { grid: { display: false } }
+        x: {
+          ticks: { font: { family: 'JetBrains Mono', size: 9 }, color: cssVar('--text-faint') },
+          grid: { display: false },
+        }
       }
     }
   });

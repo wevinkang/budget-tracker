@@ -146,26 +146,35 @@ def seed_accounts():
 
 # ── Transactions ─────────────────────────────────────────────
 
-def get_transactions(month='', account='', expense_type='', search='', limit=None):
-    conn = get_db()
-    query = 'SELECT * FROM transactions WHERE 1=1'
-    params = []
+def _txn_where(month, account, expense_type, search):
+    clause, params = 'WHERE 1=1', []
     if month:
-        query += ' AND month = ?'
-        params.append(month)
+        clause += ' AND month = ?'; params.append(month)
     if account:
-        query += ' AND account = ?'
-        params.append(account)
+        clause += ' AND account = ?'; params.append(account)
     if expense_type:
-        query += ' AND expense_type = ?'
-        params.append(expense_type)
+        clause += ' AND expense_type = ?'; params.append(expense_type)
     if search:
-        query += ' AND (notes LIKE ? OR account LIKE ?)'
+        clause += ' AND (notes LIKE ? OR account LIKE ?)'
         params += [f'%{search}%', f'%{search}%']
-    query += ' ORDER BY date DESC, id DESC'
+    return clause, params
+
+
+def count_transactions(month='', account='', expense_type='', search=''):
+    clause, params = _txn_where(month, account, expense_type, search)
+    conn = get_db()
+    n = conn.execute(f'SELECT COUNT(*) FROM transactions {clause}', params).fetchone()[0]
+    conn.close()
+    return n
+
+
+def get_transactions(month='', account='', expense_type='', search='', limit=None, offset=0):
+    clause, params = _txn_where(month, account, expense_type, search)
+    query = f'SELECT * FROM transactions {clause} ORDER BY date DESC, id DESC'
     if limit:
-        query += ' LIMIT ?'
-        params.append(limit)
+        query += ' LIMIT ? OFFSET ?'
+        params += [limit, offset]
+    conn = get_db()
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return rows
@@ -422,6 +431,26 @@ def log_import(filename, bank, imported, skipped):
     )
     conn.commit()
     conn.close()
+
+
+def get_summary_stats():
+    """Topbar readouts: total txn count, current month net, YTD net."""
+    from datetime import datetime as _dt
+    month = _dt.now().strftime('%B')
+    conn = get_db()
+    ph = ','.join('?' * len(INCOME_CATEGORIES))
+    il = list(INCOME_CATEGORIES)
+
+    txn_count = conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0]
+
+    mi = conn.execute(f'SELECT COALESCE(SUM(amount),0) FROM transactions WHERE month=? AND account IN ({ph})', [month]+il).fetchone()[0]
+    me = conn.execute(f'SELECT COALESCE(SUM(amount),0) FROM transactions WHERE month=? AND account NOT IN ({ph}) AND account!=""', [month]+il).fetchone()[0]
+
+    yi = conn.execute(f'SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account IN ({ph})', il).fetchone()[0]
+    ye = conn.execute(f'SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account NOT IN ({ph}) AND account!=""', il).fetchone()[0]
+
+    conn.close()
+    return {'txn_count': txn_count, 'month_net': mi - me, 'ytd_net': yi - ye, 'month': month}
 
 
 def get_import_logs():

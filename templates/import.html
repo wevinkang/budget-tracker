@@ -1,87 +1,113 @@
 {% extends "base.html" %}
-{% block title %}Import — Budget Tracker{% endblock %}
+{% from "macros.html" import icon %}
+{% block title %}Import — Budget // Lux{% endblock %}
+{% block topbar_title %}Import{% endblock %}
 
 {% block content %}
-<h4 class="mb-3">Import</h4>
+<div class="screen-header">
+  <div>
+    <div class="screen-title">Import</div>
+    <div class="screen-sub">DATA INGEST · <span class="accent">CSV / XLS</span> &nbsp;·&nbsp; AUTO-CLASSIFY VIA RULES</div>
+  </div>
+</div>
 
-<div class="row g-4">
-  <!-- Bank CSV upload -->
-  <div class="col-md-6">
-    <div class="card">
-      <div class="card-header py-2 fw-semibold small">Upload Bank CSV</div>
-      <div class="card-body">
-        <p class="small text-muted mb-2">Supports <strong>Amex, TD, Simplii</strong> — bank is auto-detected from the header row.</p>
-        <form method="post" action="/import/bank-csv" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
-          <input type="file" name="file" accept=".csv" class="form-control form-control-sm" required>
-          <button type="submit" class="btn btn-sm btn-primary text-nowrap">Import</button>
-        </form>
+<div class="dash-grid">
+  <!-- Bank CSV -->
+  <div class="panel bracketed">
+    <span class="bk-tl"></span><span class="bk-br"></span>
+    <div class="panel-head">
+      <span class="lbl"><span class="idx">[01]</span> Upload Bank CSV</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-faint);letter-spacing:0.12em;margin-bottom:12px;text-transform:uppercase">
+        SUPPORTS: <span class="accent-c">AMEX · TD · SIMPLII</span> · AUTO-DETECTED FROM HEADER
       </div>
+      <form method="post" action="/import/bank-csv" enctype="multipart/form-data" id="bankForm">
+        <input type="file" name="file" accept=".csv,.xls,.xlsx" id="bankFile" onchange="document.getElementById('bankName').textContent=this.files[0]?.name||'No file chosen'; document.getElementById('bankSubmit').disabled=false">
+        <div class="drop-zone" onclick="document.getElementById('bankFile').click()" style="cursor:pointer">
+          <div style="color:var(--text-dim)">{{ icon('upload', 22) }}</div>
+          <div class="mono" style="font-size:11px;letter-spacing:0.14em;color:var(--text-dim);text-transform:uppercase">DROP FILE OR BROWSE</div>
+          <div class="mono faint" style="font-size:9px;letter-spacing:0.14em">.CSV · .XLS · .XLSX</div>
+          <div class="mono faint" id="bankName" style="font-size:10px;color:var(--accent);margin-top:4px">No file chosen</div>
+        </div>
+        <button type="submit" id="bankSubmit" class="btn primary" style="width:100%;justify-content:center;margin-top:10px" disabled>
+          {{ icon('upload', 12) }} IMPORT
+        </button>
+      </form>
     </div>
   </div>
 
-  <!-- Transactions export import -->
-  <div class="col-md-6">
-    <div class="card">
-      <div class="card-header py-2 fw-semibold small">Import Google Sheets Transactions Export</div>
-      <div class="card-body">
-        <p class="small text-muted mb-2">
-          Export your Transactions sheet as CSV from Google Sheets<br>
-          <em>(File → Download → Comma-separated values)</em><br>
-          Columns expected: <code>Date, Account, Amount, Notes, Expense Type, Month[, Bank]</code>
-        </p>
-        <form method="post" action="/import/transactions-csv" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
-          <input type="file" name="file" accept=".csv" class="form-control form-control-sm" required>
-          <button type="submit" class="btn btn-sm btn-success text-nowrap">Import</button>
-        </form>
-      </div>
+  <!-- Sheets CSV -->
+  <div class="panel">
+    <div class="panel-head">
+      <span class="lbl"><span class="idx">[02]</span> Google Sheets · Transactions Export</span>
     </div>
-  </div>
-
-  <!-- Folder watcher info -->
-  <div class="col-12">
-    <div class="card border-info">
-      <div class="card-header py-2 fw-semibold small text-info">Auto-Import Folder</div>
-      <div class="card-body py-2 small">
-        <p class="mb-1">
-          Drop any bank CSV into <code>{{ import_folder }}</code> and it will be imported automatically.<br>
-          Processed files are moved to <code>{{ import_folder }}/done/</code>.
-        </p>
-        <p class="mb-0 text-muted">The watcher runs in the background while this app is open.</p>
+    <div class="panel-body">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-faint);line-height:1.8;margin-bottom:12px">
+        <div><span style="color:var(--text-dim)">FILE →</span> Download · <span class="accent-c">Comma-separated values</span></div>
+        <div><span style="color:var(--text-dim)">COLS →</span> Date, Account, Amount, Notes, Expense Type, Month[, Bank]</div>
       </div>
+      <form method="post" action="/import/transactions-csv" enctype="multipart/form-data" id="sheetsForm">
+        <input type="file" name="file" accept=".csv" id="sheetsFile" onchange="document.getElementById('sheetsName').textContent=this.files[0]?.name||'No file chosen'; document.getElementById('sheetsSubmit').disabled=false">
+        <div class="drop-zone" onclick="document.getElementById('sheetsFile').click()" style="cursor:pointer">
+          <div style="color:var(--text-dim)">{{ icon('upload', 22) }}</div>
+          <div class="mono" style="font-size:11px;letter-spacing:0.14em;color:var(--text-dim);text-transform:uppercase">DROP SHEETS EXPORT</div>
+          <div class="mono faint" id="sheetsName" style="font-size:10px;color:var(--accent);margin-top:4px">No file chosen</div>
+        </div>
+        <button type="submit" id="sheetsSubmit" class="btn primary" style="width:100%;justify-content:center;margin-top:10px" disabled>
+          {{ icon('upload', 12) }} IMPORT
+        </button>
+      </form>
     </div>
   </div>
 </div>
 
-<!-- Import log -->
+<div class="banner">
+  <div class="banner-tag">AUTO-IMPORT ◈</div>
+  <div style="flex:1;color:var(--text-dim);line-height:1.7;font-size:12px">
+    Drop any bank CSV into <code>{{ import_folder }}</code> and it will be imported automatically.<br>
+    Processed files are moved to <code>{{ import_folder }}/done/</code>.<br>
+    <span style="color:var(--text-faint)">The watcher runs in the background while the app is open.</span>
+  </div>
+</div>
+
 {% if logs %}
-<h5 class="mt-4 mb-2">Import History</h5>
-<table class="table table-sm table-hover small">
-  <thead class="table-light">
-    <tr>
-      <th>File</th>
-      <th>Bank</th>
-      <th class="text-end">Imported</th>
-      <th class="text-end">Skipped</th>
-      <th>When</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for log in logs %}
-    <tr>
-      <td>{{ log.filename }}</td>
-      <td>{{ log.bank }}</td>
-      <td class="text-end text-success">{{ log.imported }}</td>
-      <td class="text-end text-muted">{{ log.skipped }}</td>
-      <td class="text-muted">{{ log.imported_at }}</td>
-      <td>
-        <form method="post" action="/import/{{ log.id }}/undo" onsubmit="return confirm('Undo this import? This will delete {{ log.imported }} transaction(s).')">
-          <button type="submit" class="btn btn-xs btn-outline-danger">Undo</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="panel">
+  <div class="panel-head">
+    <span class="lbl"><span class="idx">[03]</span> Import History</span>
+    <span class="act">{{ logs|length }} RECORDS · LAST 30D</span>
+  </div>
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width:40px">#</th>
+        <th>File</th>
+        <th style="width:160px">Bank</th>
+        <th class="num" style="width:100px">Imported</th>
+        <th class="num" style="width:100px">Skipped</th>
+        <th style="width:180px">When</th>
+        <th style="width:100px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td class="mono faint">{{ '%03d'|format(loop.index) }}</td>
+        <td class="dim" style="font-size:11px">{{ log.filename }}</td>
+        <td><span class="acct-chip"><span class="d"></span>{{ log.bank }}</span></td>
+        <td class="num {% if log.imported > 0 %}pos{% else %}faint{% endif %}">{{ log.imported }}</td>
+        <td class="num {% if log.skipped > 0 %}neg{% else %}faint{% endif %}">{{ log.skipped }}</td>
+        <td class="mono faint" style="font-size:10px">{{ log.imported_at }}</td>
+        <td>
+          <form method="post" action="/import/{{ log.id }}/undo"
+                onsubmit="return confirm('Undo this import? This will delete {{ log.imported }} transaction(s).')">
+            <button type="submit" class="btn small ghost danger">UNDO</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endif %}
 {% endblock %}
