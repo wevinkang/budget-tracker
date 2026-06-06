@@ -1,6 +1,6 @@
 """
-Bank CSV importer — Amex, TD, Simplii + Journal CSV export from Google Sheets.
-Ported from the original Google Apps Script.
+Bank CSV importer — Amex, TD, Simplii, Scotiabank + Journal CSV export from
+Google Sheets. Ported from the original Google Apps Script.
 """
 
 import csv
@@ -10,53 +10,139 @@ from datetime import datetime
 
 import db
 
+
+def read_upload_to_csv(file, filename: str) -> str:
+    """Read a CSV/XLS/XLSX upload and return CSV text. `file` is a binary file-like
+    (e.g. open(path,'rb') or werkzeug FileStorage)."""
+    suffix = ('.' + filename.lower().rsplit('.', 1)[-1]) if '.' in filename else ''
+
+    if suffix == '.xlsx':
+        import openpyxl
+        wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
+        ws = wb.active
+        out = io.StringIO()
+        w = csv.writer(out)
+        for row in ws.iter_rows(values_only=True):
+            w.writerow(['' if v is None else str(v) for v in row])
+        wb.close()
+        return out.getvalue()
+
+    if suffix == '.xls':
+        import xlrd
+        data = file.read()
+        wb = xlrd.open_workbook(file_contents=data)
+        ws = wb.sheet_by_index(0)
+        out = io.StringIO()
+        w = csv.writer(out)
+        for i in range(ws.nrows):
+            w.writerow([str(v) if v != '' else '' for v in ws.row_values(i)])
+        return out.getvalue()
+
+    data = file.read()
+    if isinstance(data, bytes):
+        try:
+            return data.decode('utf-8')
+        except UnicodeDecodeError:
+            return data.decode('latin-1')
+    return data
+
 # ── Category keyword map ──────────────────────────────────────
 CATEGORY_MAP = {
     'Paycheck Income':        ['payroll', 'direct deposit', 'employer', 'salary', 'paycheque'],
     'Tax Income':             ['tax refund', 'cra', 'revenue canada', 'gst rebate', 'hst rebate'],
-    'Refund Income':          ['refund', 'return credit', 'chargeback', 'reversal'],
-
+    'Refund Income':          ['refund', 'return credit', 'chargeback', 'reversal', 'eft credit'],
     'Groceries expense':      ['loblaw', 'supermarket', 'bestco', 'save-on', 'safeway', 'loblaws',
                                'freshco', 'no frills', 'nofrills', 'walmart', 'costco', 't&t',
-                               'whole foods', 'iga', 'metro', 'sobeys', 'superstore', 'sanagans'],
+                               'whole foods', 'iga', 'metro', 'sobeys', 'superstore', 'sanagans',
+                               'farm boy', 'longo', 'zehrs', 'fortinos', 'bulk barn', 'adonis',
+                               'h mart', 'galleria', 'foodland', 'quality foods', 'choices market',
+                               'nesters', 'real canadian', 'pacific fresh', 'food basics',
+                               'farm fresh', 'foody mart', 'farm fresh supermarket'],
     'Food expense':           ['mcdonald', 'tim horton', 'starbucks', 'subway', 'a&w', 'wendy',
                                'pizza', 'sushi', 'ramen', 'pho', 'burrito', 'chipotle', 'burger',
                                'cafe', 'restaurant', 'kitchen', 'bistro', 'grill', 'diner',
                                'doordash', 'skip the dishes', 'uber eats', 'foodora', 'shawarma',
-                               'kabab', 'izakaya', 'jollibee', 'tahini', 'five guys', 'food'],
+                               'kabab', 'izakaya', 'jollibee', 'tahini', 'five guys', 'food',
+                               'kfc', 'popeyes', 'taco bell', 'domino', 'pizza pizza', 'pizza hut',
+                               'boston pizza', 'swiss chalet', 'harvey', 'dairy queen', 'arby',
+                               'panera', 'cora', 'denny', 'ihop', 'earls', 'cactus club',
+                               'milestones', 'the keg', 'montana', 'st-hubert', 'mary brown',
+                               'booster juice', 'freshii', 'mucho burrito', 'quesada',
+                               'second cup', 'blenz', 'jj bean', 'mccafe', 'balzac', 'pilot coffee',
+                               'eatery', 'taqueria', 'noodle', 'dumpling', 'hot pot',
+                               'smoke poutinerie', 'fatburger', 'panda express'],
     'Drinking expense':       ['lcbo', 'bc liquor', 'beer store', 'liquor', 'wine', 'brewery',
-                               'pub', 'bar ', 'taproom', 'distillery', 'bellwoods'],
-    'Travel expense':         ['westjet', 'air canada', 'porter', 'flair', 'sunwing', 'airbnb',
+                               'pub', 'bar ', 'taproom', 'distillery', 'bellwoods',
+                               'cocktail', 'lounge', 'tap house', 'craft beer'],
+    'Travel expense':         ['airline', 'airalo', 'westjet', 'air canada', 'porter', 'flair', 'sunwing', 'airbnb',
                                'vrbo', 'expedia', 'booking.com', 'hotel', 'marriott', 'hilton',
-                               'delta hotel', 'via rail', 'amtrak'],
+                               'delta hotel', 'via rail', 'amtrak',
+                               'air transat', 'best western', 'holiday inn', 'hyatt', 'sandman',
+                               'ramada', 'comfort inn', 'days inn', 'super 8', 'fairmont',
+                               'four seasons', 'sheraton', 'westin', 'travelodge'],
     'Transportation expense': ['translink', 'presto', 'ttc', 'parking', 'spothero', 'impark',
                                'lazypark', 'greenp', 'uber', 'lyft', 'shell', 'petro', 'esso',
                                'husky', 'chevron', 'ultramar', 'pioneer', 'co-op fuel',
-                               'bolt services', 'hopp'],
+                               'bolt services', 'hopp',
+                               'go transit', 'bc ferries', 'compass card', '407 etr', 'mobil',
+                               'irving', 'tesla supercharger', 'chargepoint', 'electrify canada',
+                               'flo charging', 'evgo'],
     'Car expense':            ['jiffy lube', 'midas', 'canadian tire', 'oil change', 'tire',
-                               'autopart', 'car wash', 'icbc', 'intact auto', 'belair auto'],
+                               'autopart', 'car wash', 'icbc', 'intact auto', 'belair auto',
+                               'mr lube', 'mr. lube', 'great canadian oil', 'kal tire', 'ok tire',
+                               'fountain tire', 'speedy glass', 'napa auto', 'partsource'],
     'Entertainment expense':  ['netflix', 'spotify', 'youtube premium', 'disney', 'amazon prime',
-                               'apple.com/bill', 'xbox', 'playstation', 'steam', 'cineplex',
+                               'xbox', 'playstation', 'steam', 'cineplex',
                                'cinemas', 'ticketmaster', 'eventbrite', 'primevideo', 'crave',
-                               'prime video'],
+                               'prime video',
+                               'hulu', 'paramount', 'hbo', 'apple tv', 'tidal', 'audible',
+                               'patreon', 'twitch', 'roblox', 'nintendo', 'bandcamp',
+                               'landmark cinemas', 'imax'],
     'Shopping expense':       ['amazon', 'amzn', 'ebay', 'etsy', 'best buy', 'the bay', 'winners',
                                'homesense', 'indigo', 'sport', 'running room', 'lululemon', 'h&m',
                                'zara', 'uniqlo', 'aritzia', 'arcteryx', 'north face', 'marshalls',
-                               'simons', 'rockwell', 'knifewear'],
+                               'simons', 'rockwell', 'knifewear',
+                               'old navy', 'banana republic', 'nike', 'adidas', 'new balance',
+                               'roots canada', 'reitmans', 'la vie en rose', 'ardene',
+                               'mountain equipment', 'atmosphere', 'sport chek', 'sportchek',
+                               'decathlon', 'apple store', 'microsoft store', 'newegg',
+                               'memory express', 'canada computers', 'staples', 'the source',
+                               'lee valley', 'kobo', 'bookoutlet', 'toys r us', 'mastermind toys',
+                               'petsmart', 'pet valu', 'global pet'],
     'Health expense':         ['shoppers', 'rexall', 'london drugs', 'pharmacy', 'physio', 'clinic',
                                'dental', 'optometry', 'goodlife', 'anytime fitness', 'ymca',
-                               'doctor', 'medical'],
+                               'doctor', 'medical',
+                               'lifelabs', 'dynacare', 'telus health', 'maple health',
+                               'felix health', 'massage', 'chiropract', 'acupuncture', 'naturopath',
+                               'f45', 'orangetheory', 'orange theory', 'crunch fitness',
+                               'planet fitness', 'fit4less', 'steve nash'],
     'Personal Care expense':  ['spa', 'salon', 'haircut', 'barber', 'nail', 'sephora', 'ulta',
-                               'beauty', 'wellbeing'],
+                               'beauty', 'wellbeing',
+                               'great clips', 'magicuts', 'tommy gun', 'chatters',
+                               'first choice haircut', 'lush handmade'],
     'Home expense':           ['ikea', 'home depot', 'rona', 'lowe', 'wayfair', 'rent', 'lease',
-                               'property', 'strata', 'hydro', 'fortis', 'enmax', 'atco'],
+                               'property', 'strata', 'hydro', 'fortis', 'enmax', 'atco',
+                               'home hardware', 'bc hydro', 'toronto hydro', 'hydro one', 'epcor',
+                               'direct energy', 'enercare', 'reliance home', 'just energy',
+                               'mortgage', 'condo fee', 'maintenance fee', 'property tax'],
     'Bill expense':           ['alectra', 'telus', 'cik', 'shaw', 'rogers', 'bell', 'fido',
                                'koodo', 'public mobile', 'internet', 'insurance', 'city of',
-                               'utility', 'enbridge', 'ups canada', 'sonnet insurance'],
+                               'utility', 'enbridge', 'ups canada', 'sonnet insurance',
+                               'virgin mobile', 'lucky mobile', 'chatr', 'freedom mobile', 'oxio',
+                               'teksavvy', 'beanfield', 'distributel', 'vmedia', 'eastlink',
+                               'cogeco', 'sasktel', 'aviva', 'allstate', 'manulife', 'sun life',
+                               'service ontario', 'service bc', 'nsf fee', 'overdraft fee',
+                               'foreign currency', 'icloud', 'google one', 'dropbox',
+                               'microsoft 365', 'office 365', 'adobe', 'notion', '1password',
+                               'lastpass', 'nordvpn', 'expressvpn', 'protonmail'],
     'Educational expense':    ['udemy', 'coursera', 'linkedin learning', 'tuition', 'university',
-                               'college', 'textbook', 'pearson', 'mcgraw', 'claude'],
-    'Gift expense':           ['hallmark', '1-800-flowers', 'gift card'],
-    'Date expense':           ['openrice', 'roses', 'bouquet', 'florist'],
+                               'college', 'textbook', 'pearson', 'mcgraw', 'claude',
+                               'skillshare', 'codecademy', 'pluralsight', 'brilliant',
+                               'masterclass', 'duolingo', 'babbel', 'openai', 'chatgpt',
+                               'github', 'cursor.com', 'anthropic'],
+    'Gift expense':           ['hallmark', '1-800-flowers', 'gift card',
+                               'edible arrangement', 'ftd ', 'teleflora', 'proflowers'],
+    'Girlfriend expense':     ['openrice', 'roses', 'bouquet', 'florist'],
     'Credit Card expense':    ['credit card payment', 'card payment', 'visa payment',
                                'mastercard payment', 'amex payment', 'membership fee installment'],
     'Interest expense':       ['interest charge', 'purchase interest', 'cash advance interest'],
@@ -68,11 +154,14 @@ CATEGORY_MAP = {
 SKIP_PATTERNS = [
     'miscellaneous payments american express',
     'internet bill payment visa',
+    'internet bill payment mastercard bmo',
     'td/banque td',
     'internet bill payment questrade',
     'payment received - thank you',
     'payment - thank you',
-    'Cibc'
+    'payment thank you',
+    'Cibc',
+    'mb-td visa',
 ]
 
 
@@ -93,7 +182,7 @@ NEED_WANT_MAP = {
     'Interest expense':       'Need',
     'Credit Card expense':    'Need',
     'Educational expense':    'Need',
-    'Munchkin expense':       'Need',
+    'Girlfriend expense':     'Need',
 
     'Food expense':           'Want',
     'Drinking expense':       'Want',
@@ -101,7 +190,6 @@ NEED_WANT_MAP = {
     'Entertainment expense':  'Want',
     'Shopping expense':       'Want',
     'Personal Care expense':  'Want',
-    'Date expense':           'Want',
     'Gift expense':           'Want',
 }
 
@@ -115,10 +203,12 @@ def parse_date(raw):
     if not raw:
         return None
     s = str(raw).strip().lstrip("'")
+    # Strip trailing time component (e.g., "2026-04-30 12:00:00 AM" → "2026-04-30")
+    s = re.sub(r'\s+\d{1,2}:\d{2}(:\d{2})?(\s*[AaPp][Mm])?$', '', s)
     # Normalize "29 Mar. 2026" → "29 Mar 2026"
     s_clean = s.replace('.', '')
     for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d',
-                '%m-%d-%Y', '%d-%m-%Y', '%d %b %Y', '%d %B %Y'):
+                '%m-%d-%Y', '%d-%m-%Y', '%d %b %Y', '%d %B %Y', '%Y%m%d'):
         for candidate in (s, s_clean):
             try:
                 return datetime.strptime(candidate, fmt)
@@ -158,19 +248,21 @@ def is_e_transfer(merchant):
 
 
 def categorize(merchant):
-    if is_e_transfer(merchant):
-        return ''   # always leave uncategorized — too ambiguous to auto-map
+    """Return (category, reimbursement, skip) for the given merchant string."""
+    saved_cat, saved_reimb, saved_skip = db.apply_merchant_rules(merchant)
+    if saved_skip:
+        return '', 0, True
+    if saved_cat:
+        return saved_cat, saved_reimb, False
 
-    # Check learned rules first
-    saved = db.apply_merchant_rules(merchant)
-    if saved:
-        return saved
+    if is_e_transfer(merchant):
+        return '', 0, False   # leave uncategorized — too ambiguous to auto-map
 
     m = merchant.lower()
     for category, keywords in CATEGORY_MAP.items():
         if any(kw in m for kw in keywords):
-            return category
-    return ''
+            return category, 0, False
+    return '', 0, False
 
 
 def need_want_label(category):
@@ -189,10 +281,21 @@ def detect_bank(header_row):
         return 'td'
     if 'date' in h and 'transaction' in h and ('funds out' in h or 'funds in' in h):
         return 'simplii'
-    if 'date' in h and 'description' in h and 'amount' in h:
+    if 'symbol' in h and 'net amount' in h:
+        return 'questrade'
+    if 'reference number' in h and 'rewards' in h:
+        return 'rogers'
+    if 'transaction date' in h and 'posting date' in h and 'transaction amount' in h:
+        return 'bmo'
+    if 'sub-description' in h and 'type of transaction' in h:
+        return 'scotiabank'
+    # Amex only claims shapes its parser handles: the slim 3-4 col export or the
+    # 9+ col detailed export. Wider files fall through to the generic fallback.
+    if 'date' in h and 'description' in h and 'amount' in h \
+            and (len(header_row) <= 4 or len(header_row) >= 9):
         return 'amex'
-    # Fallback: 3-column with date-like first column
-    if len(header_row) >= 3 and 'date' in str(header_row[0]).lower():
+    # Fallback: slim 3-4 column file with a date-like first column.
+    if 3 <= len(header_row) <= 4 and 'date' in str(header_row[0]).lower():
         return 'amex'
     return None
 
@@ -219,23 +322,22 @@ def find_header_row(rows):
 
 # ── Bank parsers ──────────────────────────────────────────────
 
-def _make_transaction(dt, merchant, amount, category, bank):
+def _make_transaction(dt, merchant, amount, category, bank, reimbursement=0):
     return {
-        'date':     dt.strftime('%Y-%m-%d') if dt else '',
-        'merchant': merchant,
-        'amount':   amount,
-        'category': category,
-        'needWant': need_want_label(category),
-        'month':    month_name(dt),
-        'bank':     bank,
+        'date':          dt.strftime('%Y-%m-%d') if dt else '',
+        'merchant':      merchant,
+        'amount':        amount,
+        'category':      category,
+        'needWant':      need_want_label(category),
+        'month':         month_name(dt),
+        'bank':          bank,
+        'reimbursement': reimbursement,
     }
 
 
 def parse_amex(row):
     try:
         dt = parse_date(row[0])
-        # Handle both 3-col (Date, Description, Amount) Amex CSV
-        # and 10-col (Date, Date Processed, Description, Amount, ...) Amex XLS
         if len(row) >= 9:
             merchant = clean_merchant(row[2])
             amount   = parse_amount(row[3])
@@ -246,10 +348,12 @@ def parse_amex(row):
             return None
         if should_skip(merchant):
             return None
-        # Amex: positive = charge, negative = credit/refund
         if amount < 0:
             return _make_transaction(dt, merchant, abs(amount), 'Refund Income', 'Amex')
-        return _make_transaction(dt, merchant, amount, categorize(merchant), 'Amex')
+        cat, reimb, skip = categorize(merchant)
+        if skip:
+            return None
+        return _make_transaction(dt, merchant, amount, cat, 'Amex', reimb)
     except Exception:
         return None
 
@@ -262,12 +366,100 @@ def parse_td(row):
             return None
         debit    = parse_amount(row[2])
         credit   = parse_amount(row[3]) if len(row) > 3 else None
-        # Credits (deposits) come in the credit column
         if credit is not None and credit > 0:
-            return _make_transaction(dt, merchant, credit, categorize(merchant) or 'Income', 'TD')
+            cat, reimb, skip = categorize(merchant)
+            if skip:
+                return None
+            if cat and cat not in db.INCOME_CATEGORIES and not cat.endswith('Income'):
+                cat = 'Refund Income'
+            return _make_transaction(dt, merchant, credit, cat or 'Income', 'TD', reimb)
         if debit is None or debit <= 0:
             return None
-        return _make_transaction(dt, merchant, debit, categorize(merchant), 'TD')
+        cat, reimb, skip = categorize(merchant)
+        if skip:
+            return None
+        return _make_transaction(dt, merchant, debit, cat, 'TD', reimb)
+    except Exception:
+        return None
+
+
+def parse_questrade(row):
+    """
+    Questrade activity export. Columns:
+    Transaction Date, Settlement Date, Action, Symbol, Description, Quantity,
+    Price, Gross Amount, Commission, Net Amount, Currency, Account #,
+    Activity Type, Account Type
+    Records every positive Net Amount row as Investment Income.
+    """
+    try:
+        if len(row) < 10:
+            return None
+        dt = parse_date(row[0])
+        if not dt:
+            return None
+        amount = parse_amount(row[9])
+        if amount is None or amount <= 0:
+            return None
+        action      = str(row[2]).strip()
+        description = clean_merchant(row[4])
+        notes       = f'{action}: {description}' if action and description else (action or description)
+        if should_skip(notes):
+            return None
+        return _make_transaction(dt, notes, amount, 'Investment Income', 'Questrade')
+    except Exception:
+        return None
+
+
+def parse_rogers(row):
+    """
+    Rogers Bank CSV export. Columns:
+    Date, Posted Date, Reference Number, Activity Type, Activity Status,
+    Card Number, Merchant Category Description, Merchant Name, Merchant City,
+    Merchant State or Province, Merchant Country Code, Merchant Postal Code,
+    Amount, Rewards, Name on Card
+    """
+    try:
+        if len(row) < 13:
+            return None
+        dt       = parse_date(row[0])
+        merchant = clean_merchant(row[7])
+        amount   = parse_amount(row[12])
+        if amount is None or amount == 0:
+            return None
+        if should_skip(merchant):
+            return None
+        if amount < 0:
+            return _make_transaction(dt, merchant, abs(amount), 'Refund Income', 'Rogers')
+        cat, reimb, skip = categorize(merchant)
+        if skip:
+            return None
+        return _make_transaction(dt, merchant, amount, cat, 'Rogers', reimb)
+    except Exception:
+        return None
+
+
+def parse_bmo(row):
+    """
+    BMO Mastercard CSV export. Columns:
+    Item #, Card #, Transaction Date, Posting Date, Transaction Amount, Description
+    Positive = charge (expense); negative = payment/credit.
+    """
+    try:
+        if len(row) < 6:
+            return None
+        dt       = parse_date(str(row[2]).strip().lstrip("'"))
+        amount   = parse_amount(row[4])
+        merchant = clean_merchant(row[5])
+        if amount is None or amount == 0:
+            return None
+        if should_skip(merchant):
+            return None
+        if amount < 0:
+            return _make_transaction(dt, merchant, abs(amount), 'Refund Income', 'BMO')
+        cat, reimb, skip = categorize(merchant)
+        if skip:
+            return None
+        return _make_transaction(dt, merchant, amount, cat, 'BMO', reimb)
     except Exception:
         return None
 
@@ -281,12 +473,198 @@ def parse_simplii(row):
         out      = parse_amount(row[2])
         inflow   = parse_amount(row[3]) if len(row) > 3 else None
         if inflow is not None and inflow > 0:
-            return _make_transaction(dt, merchant, inflow, 'Income', 'Simplii')
+            cat, reimb, skip = categorize(merchant)
+            if skip:
+                return None
+            if cat and cat not in db.INCOME_CATEGORIES and not cat.endswith('Income'):
+                cat = 'Refund Income'
+            return _make_transaction(dt, merchant, inflow, cat or 'Income', 'Simplii', reimb)
         if out is None or out <= 0:
             return None
-        return _make_transaction(dt, merchant, out, categorize(merchant), 'Simplii')
+        cat, reimb, skip = categorize(merchant)
+        if skip:
+            return None
+        return _make_transaction(dt, merchant, out, cat, 'Simplii', reimb)
     except Exception:
         return None
+
+
+def parse_scotia(row):
+    """
+    Scotiabank chequing CSV export. Columns:
+    Filter, Date, Description, Sub-description, Type of Transaction, Amount, Balance
+    Amount is signed: Credit (positive) = inflow, Debit (negative) = outflow.
+    The merchant detail lives in Sub-description; Description is the bank's
+    activity label (e.g. "bill payment"), so we combine the two for categorizing.
+    """
+    try:
+        if len(row) < 6:
+            return None
+        dt       = parse_date(row[1])
+        desc     = str(row[2]).strip()
+        sub      = str(row[3]).strip()
+        merchant = clean_merchant(f'{desc} {sub}'.strip())
+        if should_skip(merchant):
+            return None
+        amount = parse_amount(row[5])
+        if amount is None or amount == 0:
+            return None
+        if amount > 0:
+            cat, reimb, skip = categorize(merchant)
+            if skip:
+                return None
+            if cat and cat not in db.INCOME_CATEGORIES and not cat.endswith('Income'):
+                cat = 'Refund Income'
+            return _make_transaction(dt, merchant, amount, cat or 'Income', 'Scotiabank', reimb)
+        cat, reimb, skip = categorize(merchant)
+        if skip:
+            return None
+        return _make_transaction(dt, merchant, abs(amount), cat, 'Scotiabank', reimb)
+    except Exception:
+        return None
+
+
+# ── Generic fallback (unknown banks) ──────────────────────────
+# Used only when detect_bank() fails — e.g. a friend running the app with a
+# bank we haven't hardcoded. We infer which columns hold the date, amount, and
+# merchant by inspecting the data, then run the same categorize/dedupe pipeline.
+# Assumptions (documented because guesses can be wrong):
+#   • Single signed-amount layouts: negative = money out (expense), positive =
+#     money in (income). This is the common chequing/credit export convention.
+#   • Split debit/credit layouts: the earlier numeric column is outflow.
+# Known banks (Amex, etc.) keep their own parsers and are never routed here.
+
+def _has_decimal(v):
+    return bool(re.search(r'\d[.,]\d', v))
+
+
+def infer_layout(data_rows):
+    """Inspect data rows and infer column roles.
+    Returns a dict like {'date': i, 'merchant': i, 'amount': i} or
+    {'date': i, 'merchant': i, 'out': i, 'in': i}, or None if it can't find a
+    date column plus at least one amount column."""
+    sample = [r for r in data_rows
+              if not all(str(c).strip() == '' for c in r)][:50]
+    if not sample:
+        return None
+    ncols = max(len(r) for r in sample)
+
+    def cell(r, i):
+        return str(r[i]).strip() if i < len(r) else ''
+
+    nonempty   = [0] * ncols
+    date_hits  = [0] * ncols
+    num_hits   = [0] * ncols
+    dec_hits   = [0] * ncols
+    neg_hits   = [0] * ncols
+    text_len   = [0] * ncols
+    for r in sample:
+        for i in range(ncols):
+            v = cell(r, i)
+            if not v:
+                continue
+            nonempty[i] += 1
+            text_len[i] += len(v)
+            if parse_date(v):
+                date_hits[i] += 1
+            if re.search(r'\d', v) and parse_amount(v) is not None:
+                num_hits[i] += 1
+                if _has_decimal(v):
+                    dec_hits[i] += 1
+                if parse_amount(v) < 0:
+                    neg_hits[i] += 1
+
+    # Date column: best date-parse rate, covering a majority of its cells.
+    date_idx = max(range(ncols), key=lambda i: date_hits[i])
+    if date_hits[date_idx] < max(2, 0.5 * nonempty[date_idx]):
+        return None
+
+    n = len(sample)
+    # A "monetary" column parses as an amount whenever it's populated and shows
+    # at least one decimal value — this rejects integer reference-number columns.
+    # Judged per-column (not by a global frequency), so a sparse Deposits column
+    # with only a couple of rows still counts.
+    monetary = [i for i in range(ncols)
+                if i != date_idx and nonempty[i] >= 1
+                and num_hits[i] >= 0.8 * nonempty[i] and dec_hits[i] >= 1]
+    if not monetary:
+        return None
+
+    # "full" = populated in nearly every row (single signed amount, or balance);
+    # "sparse" = populated in only some rows (debit/credit split columns).
+    full   = [i for i in monetary if nonempty[i] >= 0.9 * n]
+    sparse = [i for i in monetary if i not in full]
+
+    layout = {'date': date_idx}
+    if len(sparse) >= 2:
+        # Split debit/credit: take the two most-populated sparse columns, then
+        # order by position (earlier column = outflow, matching TD/Simplii).
+        chosen = sorted(sorted(sparse, key=lambda i: num_hits[i],
+                               reverse=True)[:2])
+        layout['out'], layout['in'] = chosen[0], chosen[1]
+        used = {date_idx, chosen[0], chosen[1]}
+    else:
+        # Single signed amount. Among full columns, prefer the one with the most
+        # negative values (amount has expenses; balance is usually positive),
+        # then the earliest (amount typically precedes balance).
+        cand = full or sparse
+        amt = sorted(cand, key=lambda i: (-neg_hits[i], i))[0]
+        layout['amount'] = amt
+        used = {date_idx, amt}
+
+    rest = [i for i in range(ncols) if i not in used]
+    if not rest:
+        return None
+    layout['merchant'] = max(rest, key=lambda i: text_len[i])
+    return layout
+
+
+def make_generic_parser(layout):
+    """Build a per-row parser closure from an inferred column layout."""
+    def parse(row):
+        try:
+            def get(i):
+                return row[i] if i < len(row) else ''
+            dt       = parse_date(get(layout['date']))
+            merchant = clean_merchant(get(layout['merchant']))
+            if should_skip(merchant):
+                return None
+
+            if 'amount' in layout:
+                amount = parse_amount(get(layout['amount']))
+                if amount is None or amount == 0:
+                    return None
+                if amount > 0:
+                    cat, reimb, skip = categorize(merchant)
+                    if skip:
+                        return None
+                    return _make_transaction(dt, merchant, amount,
+                                             cat or 'Income', 'Generic', reimb)
+                # negative = expense
+                cat, reimb, skip = categorize(merchant)
+                if skip:
+                    return None
+                return _make_transaction(dt, merchant, abs(amount), cat,
+                                         'Generic', reimb)
+
+            outflow = parse_amount(get(layout['out']))
+            inflow  = parse_amount(get(layout['in']))
+            if inflow is not None and inflow > 0:
+                cat, reimb, skip = categorize(merchant)
+                if skip:
+                    return None
+                return _make_transaction(dt, merchant, inflow,
+                                         cat or 'Income', 'Generic', reimb)
+            if outflow is None or outflow <= 0:
+                return None
+            cat, reimb, skip = categorize(merchant)
+            if skip:
+                return None
+            return _make_transaction(dt, merchant, outflow, cat,
+                                     'Generic', reimb)
+        except Exception:
+            return None
+    return parse
 
 
 # ── Public import functions ───────────────────────────────────
@@ -310,19 +688,27 @@ def import_csv_string(content):
 
     # TD exports have no header — detect from first data row instead
     if not bank and header_idx == 0:
-        bank = detect_bank_from_data(rows[0])
-        data_start = 0  # first row is already data
+        td_bank = detect_bank_from_data(rows[0])
+        if td_bank:
+            bank = td_bank
+            data_start = 0  # first row is already data
 
-    if not bank:
-        import logging
-        logging.getLogger(__name__).warning(f'Bank detection failed. Header row: {rows[0]}')
-        return 0, 0, None
+    parsers = {'amex': parse_amex, 'td': parse_td, 'simplii': parse_simplii, 'questrade': parse_questrade, 'rogers': parse_rogers, 'bmo': parse_bmo, 'scotiabank': parse_scotia}
+
+    if bank:
+        parse_fn = parsers[bank]
+    else:
+        # Unknown bank — try inferring the columns from the data itself.
+        layout = infer_layout(rows[data_start:])
+        if not layout:
+            import logging
+            logging.getLogger(__name__).warning(f'Bank detection failed and column inference failed. Header row: {rows[0]}')
+            return 0, 0, None
+        bank = 'generic'
+        parse_fn = make_generic_parser(layout)
 
     existing = db.get_dedupe_keys()
     added = skipped = 0
-
-    parsers = {'amex': parse_amex, 'td': parse_td, 'simplii': parse_simplii}
-    parse_fn = parsers[bank]
 
     for row in rows[data_start:]:
         if all(str(c).strip() == '' for c in row):
@@ -335,13 +721,14 @@ def import_csv_string(content):
             skipped += 1
             continue
         db.add_transaction({
-            'date':         t['date'],
-            'account':      t['category'],
-            'amount':       t['amount'],
-            'notes':        t['merchant'],
-            'expense_type': t['needWant'],
-            'month':        t['month'],
-            'bank':         t['bank'],
+            'date':          t['date'],
+            'account':       t['category'],
+            'amount':        t['amount'],
+            'notes':         t['merchant'],
+            'expense_type':  t['needWant'],
+            'month':         t['month'],
+            'bank':          t['bank'],
+            'reimbursement': t.get('reimbursement', 0),
         })
         existing.add(key)
         added += 1

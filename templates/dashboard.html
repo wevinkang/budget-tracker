@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "macros.html" import icon %}
-{% block title %}Overview — Budget // Lux{% endblock %}
+{% block title %}Overview — Budget // Wev{% endblock %}
 {% block topbar_title %}Overview{% endblock %}
 
 {% block content %}
@@ -65,7 +65,7 @@
     <span class="bk-tl"></span><span class="bk-br"></span>
     <div class="panel-head">
       <span class="lbl"><span class="idx">[05]</span> Cash Flow · Trailing Months</span>
-      <span class="act">EXPAND →</span>
+      <a class="act" href="/net-income">EXPAND →</a>
     </div>
     <div class="panel-body">
       <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px;font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase">
@@ -124,7 +124,7 @@
         <td class="mono faint">{{ t.date }}</td>
         <td>
           <span class="acct-chip">
-            <span class="d" style="background:{% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}var(--pos){% else %}var(--accent){% endif %}"></span>
+            <span class="d" style="background:{% if t.account in _income_accts %}var(--pos){% else %}var(--accent){% endif %}"></span>
             {{ t.account }}
           </span>
         </td>
@@ -132,12 +132,12 @@
         <td>
           {% if t.expense_type == 'Need' %}<span class="badge-need">Need</span>
           {% elif t.expense_type == 'Want' %}<span class="badge-want">Want</span>
-          {% elif t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}<span class="badge-income">Income</span>
+          {% elif t.account in _income_accts %}<span class="badge-income">Income</span>
           {% endif %}
         </td>
         <td class="mono faint">{{ t.bank or '' }}</td>
-        <td class="num {% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}pos{% else %}neg{% endif %}">
-          {{ '+' if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') else '-' }}${{ '%.2f'|format(t.amount) }}
+        <td class="num {% if t.account in _income_accts %}pos{% else %}neg{% endif %}">
+          {{ '+' if t.account in _income_accts else '-' }}${{ '%.2f'|format(t.amount) }}
         </td>
       </tr>
       {% else %}
@@ -200,8 +200,8 @@ if (TREND.length) {
     data: {
       labels: TREND.map(r => r.month.slice(0,3).toUpperCase()),
       datasets: [
-        { label: 'Income',   data: inc, backgroundColor: cssVar('--pos')  + 'dd', borderRadius: 0, borderWidth: 0 },
-        { label: 'Expenses', data: exp, backgroundColor: cssVar('--neg')  + 'dd', borderRadius: 0, borderWidth: 0 },
+        { label: 'Income',   data: inc, backgroundColor: 'oklch(0.82 0.16 165 / 0.75)', borderRadius: 0, borderWidth: 0 },
+        { label: 'Expenses', data: exp, backgroundColor: 'oklch(0.72 0.19 25 / 0.75)',  borderRadius: 0, borderWidth: 0 },
       ]
     },
     options: {

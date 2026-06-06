@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Budget // Lux{% endblock %}</title>
+  <title>{% block title %}Budget // Wev{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -18,6 +18,10 @@
     (function(){
       var t = localStorage.getItem('budget-theme') || 'observatory';
       document.documentElement.setAttribute('data-theme', t);
+      var h = localStorage.getItem('budget-hue');
+      if (h) document.documentElement.style.setProperty('--accent-h', h);
+      var d = localStorage.getItem('budget-density');
+      if (d && d !== 'default') document.documentElement.setAttribute('data-density', d);
     })();
   </script>
   <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
@@ -30,7 +34,7 @@
     <div class="rail-brand">
       <div class="logo">B</div>
       <div>
-        <div class="title">BUDGET//LUX</div>
+        <div class="title">BUDGET//WEV</div>
         <div class="sub">v2.0</div>
       </div>
     </div>
@@ -42,20 +46,20 @@
     <a class="rail-item {% if request.endpoint == 'transactions' %}active{% endif %}" href="/transactions">
       {{ icon('tx') }} Transactions <span class="kbd">G T</span>
     </a>
-    <a class="rail-item {% if request.endpoint == 'net_income' %}active{% endif %}" href="/net-income">
-      {{ icon('net') }} Net Income <span class="kbd">G N</span>
-    </a>
     <a class="rail-item {% if request.endpoint == 'reports' %}active{% endif %}" href="/reports">
       {{ icon('reports') }} Reports <span class="kbd">G R</span>
     </a>
-    <a class="rail-item {% if request.endpoint == 'accounts' %}active{% endif %}" href="/accounts">
-      {{ icon('accounts') }} Accounts <span class="kbd">G A</span>
+    <a class="rail-item {% if request.endpoint == 'net_income' %}active{% endif %}" href="/net-income">
+      {{ icon('net') }} Net Income <span class="kbd">G N</span>
     </a>
     <a class="rail-item {% if request.endpoint == 'import_page' %}active{% endif %}" href="/import">
       {{ icon('import') }} Import <span class="kbd">G I</span>
     </a>
     <a class="rail-item {% if request.endpoint == 'merchant_rules' %}active{% endif %}" href="/merchant-rules">
       {{ icon('rules') }} Rules <span class="kbd">G L</span>
+    </a>
+    <a class="rail-item {% if request.endpoint == 'accounts' %}active{% endif %}" href="/accounts">
+      {{ icon('accounts') }} Accounts <span class="kbd">G A</span>
     </a>
 
     <div class="rail-section">◇ SYSTEM</div>
@@ -148,6 +152,12 @@
             <input type="number" step="0.01" min="0" class="input" id="f_amount" name="amount" required>
           </div>
           <div class="form-group">
+            <label>Reimbursed ($)</label>
+            <input type="number" step="0.01" min="0" class="input" id="f_reimbursement" name="reimbursement" placeholder="0.00">
+          </div>
+        </div>
+        <div class="form-row cols-32">
+          <div class="form-group">
             <label>Expense Type</label>
             <select class="select" id="f_type" name="expense_type">
               <option value="">—</option>
@@ -155,21 +165,23 @@
               <option value="Want">Want</option>
             </select>
           </div>
-        </div>
-        <div class="form-row cols-32">
-          <div class="form-group">
-            <label>Notes</label>
-            <input type="text" class="input" id="f_notes" name="notes">
-          </div>
           <div class="form-group">
             <label>Bank</label>
             <input type="text" class="input" id="f_bank" name="bank">
           </div>
         </div>
+        <div class="form-group">
+          <label>Notes</label>
+          <input type="text" class="input" id="f_notes" name="notes">
+        </div>
         <div id="rememberWrap" class="form-group hidden">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;text-transform:none;letter-spacing:0">
             <input type="checkbox" id="f_remember" name="remember" value="1">
-            <span style="color:var(--text-dim)">Remember for future imports</span>
+            <span style="color:var(--text-dim)">Remember category for future imports</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;text-transform:none;letter-spacing:0;margin-top:6px">
+            <input type="checkbox" id="f_skip" name="skip" value="1">
+            <span style="color:var(--neg)">Skip this merchant on future imports</span>
           </label>
         </div>
       </div>
@@ -208,21 +220,73 @@
         <button class="tweak-opt" data-theme="vault"      onclick="setTheme('vault')">Vault</button>
       </div>
     </div>
+    <div class="tweak-row">
+      <label>Accent Hue <span id="hueVal" style="color:var(--accent);font-family:var(--mono);font-size:10px">210°</span></label>
+      <input type="range" id="hueSlider" min="0" max="359" value="210"
+             oninput="setHue(this.value)"
+             style="width:100%;margin-top:6px;accent-color:var(--accent)">
+    </div>
+    <div class="tweak-row">
+      <label>Density</label>
+      <div class="tweak-options">
+        <button class="tweak-opt" data-density="compact"  onclick="setDensity('compact')">Compact</button>
+        <button class="tweak-opt" data-density="default"  onclick="setDensity('default')">Default</button>
+        <button class="tweak-opt" data-density="spacious" onclick="setDensity('spacious')">Spacious</button>
+      </div>
+    </div>
   </div>
 </div>
+
+<!-- Mobile bottom tab bar -->
+<nav class="mobile-nav">
+  <a href="/" class="{% if request.endpoint == 'index' %}active{% endif %}">
+    {{ icon('dashboard', 18) }}<span>Home</span>
+  </a>
+  <a href="/transactions" class="{% if request.endpoint == 'transactions' %}active{% endif %}">
+    {{ icon('tx', 18) }}<span>Txns</span>
+  </a>
+  <a href="/reports" class="{% if request.endpoint == 'reports' %}active{% endif %}">
+    {{ icon('reports', 18) }}<span>Reports</span>
+  </a>
+  <a href="/net-income" class="{% if request.endpoint == 'net_income' %}active{% endif %}">
+    {{ icon('net', 18) }}<span>Net</span>
+  </a>
+  <a href="/import" class="{% if request.endpoint == 'import_page' %}active{% endif %}">
+    {{ icon('import', 18) }}<span>Import</span>
+  </a>
+</nav>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <script>
-// ── Theme ──────────────────────────────────────────────────────
+// ── Theme / Hue / Density ─────────────────────────────────────
 function setTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   localStorage.setItem('budget-theme', t);
-  document.querySelectorAll('.tweak-opt').forEach(b => b.classList.toggle('active', b.dataset.theme === t));
+  document.querySelectorAll('.tweak-opt[data-theme]').forEach(b => b.classList.toggle('active', b.dataset.theme === t));
 }
+
+function setHue(h) {
+  document.documentElement.style.setProperty('--accent-h', h);
+  localStorage.setItem('budget-hue', h);
+  document.getElementById('hueVal').textContent = h + '°';
+}
+
+function setDensity(d) {
+  if (d === 'default') document.documentElement.removeAttribute('data-density');
+  else document.documentElement.setAttribute('data-density', d);
+  localStorage.setItem('budget-density', d);
+  document.querySelectorAll('.tweak-opt[data-density]').forEach(b => b.classList.toggle('active', b.dataset.density === d));
+}
+
 (function() {
   const t = localStorage.getItem('budget-theme') || 'observatory';
-  document.querySelectorAll('.tweak-opt').forEach(b => b.classList.toggle('active', b.dataset.theme === t));
+  document.querySelectorAll('.tweak-opt[data-theme]').forEach(b => b.classList.toggle('active', b.dataset.theme === t));
+  const h = localStorage.getItem('budget-hue') || '210';
+  document.getElementById('hueSlider').value = h;
+  document.getElementById('hueVal').textContent = h + '°';
+  const d = localStorage.getItem('budget-density') || 'default';
+  document.querySelectorAll('.tweak-opt[data-density]').forEach(b => b.classList.toggle('active', b.dataset.density === d));
 })();
 
 // ── Tweaks ─────────────────────────────────────────────────────
@@ -254,18 +318,20 @@ function openAddModal(nextUrl) {
 function openEditModal(data) {
   document.getElementById('modalTitle').textContent = 'EDIT TRANSACTION';
   document.getElementById('modalSubmitBtn').textContent = 'Save';
-  document.getElementById('txnId').value        = data.id;
-  document.getElementById('txnNextUrl').value   = '';
-  document.getElementById('f_date').value       = data.date;
-  document.getElementById('f_account').value    = data.account;
-  document.getElementById('f_amount').value     = data.amount;
-  document.getElementById('f_notes').value      = data.notes;
-  document.getElementById('f_type').value       = data.type;
-  document.getElementById('f_month').value      = data.month;
-  document.getElementById('f_bank').value       = data.bank;
+  document.getElementById('txnId').value            = data.id;
+  document.getElementById('txnNextUrl').value       = '';
+  document.getElementById('f_date').value           = data.date;
+  document.getElementById('f_account').value        = data.account;
+  document.getElementById('f_amount').value         = data.amount;
+  document.getElementById('f_reimbursement').value  = data.reimbursement || '';
+  document.getElementById('f_notes').value          = data.notes;
+  document.getElementById('f_type').value           = data.type;
+  document.getElementById('f_month').value          = data.month;
+  document.getElementById('f_bank').value           = data.bank;
   const isEt = E_TRANSFER_RE.test(data.notes || '');
   document.getElementById('rememberWrap').classList.toggle('hidden', isEt);
   document.getElementById('f_remember').checked = false;
+  document.getElementById('f_skip').checked = false;
   document.getElementById('txnModalScrim').classList.remove('hidden');
 }
 

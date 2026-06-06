@@ -48,35 +48,8 @@ class CSVHandler(FileSystemEventHandler):
             logger.warning(f'Could not detect bank format for {path.name} — left in place')
 
     def _read_as_csv(self, path: Path) -> str:
-        import csv, io
-        suffix = path.suffix.lower()
-
-        if suffix == '.xlsx':
-            import openpyxl
-            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-            ws = wb.active
-            out = io.StringIO()
-            writer = csv.writer(out)
-            for row in ws.iter_rows(values_only=True):
-                writer.writerow(['' if v is None else str(v) for v in row])
-            wb.close()
-            return out.getvalue()
-
-        if suffix == '.xls':
-            import xlrd
-            wb = xlrd.open_workbook(path)
-            ws = wb.sheet_by_index(0)
-            out = io.StringIO()
-            writer = csv.writer(out)
-            for i in range(ws.nrows):
-                writer.writerow([str(v) if v != '' else '' for v in ws.row_values(i)])
-            return out.getvalue()
-
-        # Plain CSV
-        try:
-            return path.read_text(encoding='utf-8')
-        except UnicodeDecodeError:
-            return path.read_text(encoding='latin-1')
+        with open(path, 'rb') as f:
+            return importer.read_upload_to_csv(f, path.name)
 
     def _unique_dest(self, filename: str) -> Path:
         dest = self.done_folder / filename

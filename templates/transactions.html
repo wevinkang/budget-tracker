@@ -1,12 +1,14 @@
 {% extends "base.html" %}
 {% from "macros.html" import icon %}
-{% block title %}Transactions — Budget // Lux{% endblock %}
+{% block title %}Transactions — Budget // Wev{% endblock %}
 {% block topbar_title %}Transactions{% endblock %}
 
 {% block content %}
-{% set income_accts = ('Paycheck Income','Tax Income','Refund Income','Income') %}
+{% set income_accts = _income_accts %}
 {% set page_income  = transactions|selectattr('account','in',income_accts)|sum(attribute='amount') %}
-{% set page_expense = transactions|rejectattr('account','in',income_accts)|sum(attribute='amount') %}
+{% set ns = namespace(expense=0) %}
+{% for t in transactions %}{% if t.account not in income_accts %}{% set ns.expense = ns.expense + t.amount - (t.reimbursement or 0) %}{% endif %}{% endfor %}
+{% set page_expense = ns.expense %}
 
 <div class="screen-header">
   <div>
@@ -81,7 +83,7 @@
         <td class="mono faint">{{ t.date }}</td>
         <td>
           <span class="acct-chip">
-            <span class="d" style="background:{% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}var(--pos){% else %}var(--accent){% endif %}"></span>
+            <span class="d" style="background:{% if t.account in _income_accts %}var(--pos){% else %}var(--accent){% endif %}"></span>
             {{ t.account }}
           </span>
         </td>
@@ -89,12 +91,17 @@
         <td>
           {% if t.expense_type == 'Need' %}<span class="badge-need">Need</span>
           {% elif t.expense_type == 'Want' %}<span class="badge-want">Want</span>
-          {% elif t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}<span class="badge-income">Income</span>
+          {% elif t.account in _income_accts %}<span class="badge-income">Income</span>
           {% endif %}
         </td>
         <td class="mono faint d-md">{{ t.bank or '' }}</td>
-        <td class="num {% if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') %}pos{% else %}neg{% endif %}">
-          {{ '+' if t.account in ('Paycheck Income','Tax Income','Refund Income','Income') else '-' }}${{ '%.2f'|format(t.amount) }}
+        {% set is_income = t.account in _income_accts %}
+        {% set net_amt = t.amount - (t.reimbursement or 0) %}
+        <td class="num {% if is_income %}pos{% else %}neg{% endif %}">
+          {{ '+' if is_income else '-' }}${{ '%.2f'|format(net_amt) }}
+          {% if t.reimbursement %}
+          <div style="font-size:9px;color:var(--text-faint);font-family:var(--mono);font-weight:400">↩ ${{ '%.2f'|format(t.reimbursement) }}</div>
+          {% endif %}
         </td>
         <td>
           <div class="row-actions">
@@ -103,6 +110,7 @@
               data-date="{{ t.date }}"
               data-account="{{ t.account|e }}"
               data-amount="{{ t.amount }}"
+              data-reimbursement="{{ t.reimbursement or 0 }}"
               data-notes="{{ t.notes|e }}"
               data-type="{{ t.expense_type|e }}"
               data-month="{{ t.month|e }}"
@@ -155,14 +163,15 @@
 <script>
 function editRow(btn) {
   openEditModal({
-    id:      btn.dataset.id,
-    date:    btn.dataset.date,
-    account: btn.dataset.account,
-    amount:  btn.dataset.amount,
-    notes:   btn.dataset.notes,
-    type:    btn.dataset.type,
-    month:   btn.dataset.month,
-    bank:    btn.dataset.bank,
+    id:            btn.dataset.id,
+    date:          btn.dataset.date,
+    account:       btn.dataset.account,
+    amount:        btn.dataset.amount,
+    reimbursement: btn.dataset.reimbursement,
+    notes:         btn.dataset.notes,
+    type:          btn.dataset.type,
+    month:         btn.dataset.month,
+    bank:          btn.dataset.bank,
   });
 }
 

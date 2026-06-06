@@ -4,8 +4,8 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ~/budget-data:/data
-      - ~/budget-imports:/imports
-    stdin_open: true
-    tty: true
+      - /home/wev/budget-data:/data
+      - /home/wev/budget-imports:/imports
+    env_file:
+      - .env
     restart: unless-stopped

@@ -17,15 +17,15 @@ def _pragma_key(conn):
     """Apply the encryption key — must be the first statement on a connection."""
     conn.execute(f'PRAGMA key="{_PASSWORD}"')
 
-INCOME_CATEGORIES = {'Paycheck Income', 'Tax Income', 'Refund Income', 'Income'}
+INCOME_CATEGORIES = {'Paycheck Income', 'Tax Income', 'Refund Income', 'Income', 'Investment Income'}
 
 DEFAULT_ACCOUNTS = [
-    'Paycheck Income', 'Tax Income', 'Refund Income', 'Income',
+    'Paycheck Income', 'Tax Income', 'Refund Income', 'Income', 'Investment Income',
     'Groceries expense', 'Food expense', 'Drinking expense', 'Travel expense',
     'Transportation expense', 'Car expense', 'Entertainment expense',
     'Shopping expense', 'Health expense', 'Personal Care expense',
     'Home expense', 'Bill expense', 'Educational expense',
-    'Gift expense', 'Date expense', 'Munchkin expense',
+    'Gift expense', 'Girlfriend expense',
     'Credit Card expense', 'Interest expense', 'Loans expense',
 ]
 
@@ -100,15 +100,16 @@ def init_db():
     conn = get_db()
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS transactions (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            date         TEXT NOT NULL,
-            account      TEXT,
-            amount       REAL NOT NULL,
-            notes        TEXT,
-            expense_type TEXT,
-            month        TEXT,
-            bank         TEXT,
-            created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            date          TEXT NOT NULL,
+            account       TEXT,
+            amount        REAL NOT NULL,
+            notes         TEXT,
+            expense_type  TEXT,
+            month         TEXT,
+            bank          TEXT,
+            reimbursement REAL DEFAULT 0,
+            created_at    TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE TABLE IF NOT EXISTS accounts (
@@ -126,14 +127,35 @@ def init_db():
         );
 
         CREATE TABLE IF NOT EXISTS merchant_rules (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            pattern    TEXT UNIQUE NOT NULL,
-            category   TEXT NOT NULL,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern       TEXT UNIQUE NOT NULL,
+            category      TEXT NOT NULL,
+            reimbursement REAL DEFAULT 0,
+            created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS category_budgets (
+            account       TEXT PRIMARY KEY,
+            monthly_limit REAL NOT NULL,
+            created_at    TEXT DEFAULT CURRENT_TIMESTAMP
         );
     """)
     conn.commit()
+    _migrate_schema(conn)
     conn.close()
+
+
+def _migrate_schema(conn):
+    """Add columns introduced after initial schema without dropping data."""
+    existing_txn = {row[1] for row in conn.execute('PRAGMA table_info(transactions)')}
+    if 'reimbursement' not in existing_txn:
+        conn.execute('ALTER TABLE transactions ADD COLUMN reimbursement REAL DEFAULT 0')
+    existing_rules = {row[1] for row in conn.execute('PRAGMA table_info(merchant_rules)')}
+    if 'reimbursement' not in existing_rules:
+        conn.execute('ALTER TABLE merchant_rules ADD COLUMN reimbursement REAL DEFAULT 0')
+    if 'skip' not in existing_rules:
+        conn.execute('ALTER TABLE merchant_rules ADD COLUMN skip INTEGER DEFAULT 0')
+    conn.commit()
 
 
 def seed_accounts():
@@ -190,10 +212,11 @@ def get_transaction(id):
 def add_transaction(data):
     conn = get_db()
     conn.execute(
-        'INSERT INTO transactions (date, account, amount, notes, expense_type, month, bank) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO transactions (date, account, amount, notes, expense_type, month, bank, reimbursement) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         (data['date'], data['account'], data['amount'], data['notes'],
-         data['expense_type'], data['month'], data.get('bank', ''))
+         data['expense_type'], data['month'], data.get('bank', ''),
+         data.get('reimbursement', 0) or 0)
     )
     conn.commit()
     conn.close()
@@ -203,9 +226,10 @@ def update_transaction(id, data):
     conn = get_db()
     conn.execute(
         'UPDATE transactions SET date=?, account=?, amount=?, notes=?, '
-        'expense_type=?, month=?, bank=? WHERE id=?',
+        'expense_type=?, month=?, bank=?, reimbursement=? WHERE id=?',
         (data['date'], data['account'], data['amount'], data['notes'],
-         data['expense_type'], data['month'], data.get('bank', ''), id)
+         data['expense_type'], data['month'], data.get('bank', ''),
+         data.get('reimbursement', 0) or 0, id)
     )
     conn.commit()
     conn.close()
@@ -293,7 +317,7 @@ def get_net_income_summary():
         ).fetchone()[0]
 
         expenses = conn.execute(
-            f'SELECT COALESCE(SUM(amount),0) FROM transactions '
+            f'SELECT COALESCE(SUM(amount - COALESCE(reimbursement, 0)),0) FROM transactions '
             f'WHERE month=? AND account NOT IN ({income_placeholders}) AND account != ""',
             [month] + income_list
         ).fetchone()[0]
@@ -330,7 +354,7 @@ def get_category_report(month):
     income_placeholders = ','.join('?' * len(INCOME_CATEGORIES))
     income_list = list(INCOME_CATEGORIES)
     rows = conn.execute(
-        f'SELECT account, SUM(amount) as total, COUNT(*) as count '
+        f'SELECT account, SUM(amount - COALESCE(reimbursement, 0)) as total, COUNT(*) as count '
         f'FROM transactions '
         f'WHERE month=? AND account NOT IN ({income_placeholders}) AND account != "" '
         f'GROUP BY account ORDER BY total DESC',
@@ -355,7 +379,7 @@ def get_need_want_report(month):
     income_placeholders = ','.join('?' * len(INCOME_CATEGORIES))
     income_list = list(INCOME_CATEGORIES)
     rows = conn.execute(
-        f"SELECT expense_type, SUM(amount) as total, COUNT(*) as count "
+        f"SELECT expense_type, SUM(amount - COALESCE(reimbursement, 0)) as total, COUNT(*) as count "
         f"FROM transactions "
         f"WHERE month=? AND account NOT IN ({income_placeholders}) "
         f"AND expense_type IN ('Need', 'Want') "
@@ -390,13 +414,14 @@ def get_merchant_rules():
     return [dict(r) for r in rows]
 
 
-def save_merchant_rule(pattern, category):
+def save_merchant_rule(pattern, category, reimbursement=0, skip=False):
     """Insert or update a rule for the given pattern."""
     conn = get_db()
     conn.execute(
-        'INSERT INTO merchant_rules (pattern, category) VALUES (?, ?)'
-        ' ON CONFLICT(pattern) DO UPDATE SET category=excluded.category',
-        (pattern.lower().strip(), category)
+        'INSERT INTO merchant_rules (pattern, category, reimbursement, skip) VALUES (?, ?, ?, ?)'
+        ' ON CONFLICT(pattern) DO UPDATE SET category=excluded.category,'
+        ' reimbursement=excluded.reimbursement, skip=excluded.skip',
+        (pattern.lower().strip(), category, reimbursement or 0, 1 if skip else 0)
     )
     conn.commit()
     conn.close()
@@ -409,16 +434,46 @@ def delete_merchant_rule(rule_id):
     conn.close()
 
 
-def apply_merchant_rules(merchant):
-    """Return the saved category for this merchant, or '' if none match."""
+def get_category_budgets():
+    """Return {account: monthly_limit} for all set budgets."""
     conn = get_db()
-    rules = conn.execute('SELECT pattern, category FROM merchant_rules').fetchall()
+    rows = conn.execute('SELECT account, monthly_limit FROM category_budgets').fetchall()
+    conn.close()
+    return {r['account']: r['monthly_limit'] for r in rows}
+
+
+def save_category_budget(account, monthly_limit):
+    conn = get_db()
+    conn.execute(
+        'INSERT INTO category_budgets (account, monthly_limit) VALUES (?, ?)'
+        ' ON CONFLICT(account) DO UPDATE SET monthly_limit=excluded.monthly_limit',
+        (account, monthly_limit)
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_category_budget(account):
+    conn = get_db()
+    conn.execute('DELETE FROM category_budgets WHERE account=?', (account,))
+    conn.commit()
+    conn.close()
+
+
+def apply_merchant_rules(merchant):
+    """Return (category, reimbursement, skip) for this merchant, or ('', 0, False) if no rule matches.
+    Longest pattern wins so specific rules beat broad ones."""
+    conn = get_db()
+    rules = conn.execute(
+        'SELECT pattern, category, reimbursement, skip FROM merchant_rules '
+        'ORDER BY length(pattern) DESC'
+    ).fetchall()
     conn.close()
     m = merchant.lower()
     for rule in rules:
         if rule['pattern'] in m:
-            return rule['category']
-    return ''
+            return rule['category'], rule['reimbursement'] or 0, bool(rule['skip'])
+    return '', 0, False
 
 
 # ── Import log ────────────────────────────────────────────────
@@ -444,10 +499,10 @@ def get_summary_stats():
     txn_count = conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0]
 
     mi = conn.execute(f'SELECT COALESCE(SUM(amount),0) FROM transactions WHERE month=? AND account IN ({ph})', [month]+il).fetchone()[0]
-    me = conn.execute(f'SELECT COALESCE(SUM(amount),0) FROM transactions WHERE month=? AND account NOT IN ({ph}) AND account!=""', [month]+il).fetchone()[0]
+    me = conn.execute(f'SELECT COALESCE(SUM(amount - COALESCE(reimbursement, 0)),0) FROM transactions WHERE month=? AND account NOT IN ({ph}) AND account!=""', [month]+il).fetchone()[0]
 
     yi = conn.execute(f'SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account IN ({ph})', il).fetchone()[0]
-    ye = conn.execute(f'SELECT COALESCE(SUM(amount),0) FROM transactions WHERE account NOT IN ({ph}) AND account!=""', il).fetchone()[0]
+    ye = conn.execute(f'SELECT COALESCE(SUM(amount - COALESCE(reimbursement, 0)),0) FROM transactions WHERE account NOT IN ({ph}) AND account!=""', il).fetchone()[0]
 
     conn.close()
     return {'txn_count': txn_count, 'month_net': mi - me, 'ytd_net': yi - ye, 'month': month}

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "macros.html" import icon %}
-{% block title %}Rules — Budget // Lux{% endblock %}
+{% block title %}Rules — Budget // Wev{% endblock %}
 {% block topbar_title %}Rules{% endblock %}
 
 {% block content %}
@@ -20,7 +20,11 @@
     <input class="input" id="ruleSearch" placeholder="Search patterns or categories…" oninput="filterRules(this.value)" style="font-size:12px">
   </div>
   <div class="spacer"></div>
-  <span class="mono faint" style="font-size:10px;letter-spacing:0.14em">Match order: specificity descending</span>
+  <form method="post" action="/merchant-rules/reapply" style="display:inline"
+        onsubmit="return confirm('Re-run rules against all existing transactions? Manual categorizations may be overwritten where a matching rule or keyword exists.')">
+    <button type="submit" class="btn small">REAPPLY TO EXISTING</button>
+  </form>
+  <span class="mono faint" style="font-size:10px;letter-spacing:0.14em;margin-left:12px">Match order: specificity descending</span>
 </div>
 
 {% if rules %}
@@ -30,9 +34,10 @@
       <tr>
         <th style="width:40px">#</th>
         <th>Pattern</th>
-        <th style="width:240px">Category</th>
-        <th style="width:140px">Saved</th>
-        <th style="width:120px"></th>
+        <th style="width:200px">Category</th>
+        <th style="width:110px" class="num">Reimbursed</th>
+        <th style="width:120px">Saved</th>
+        <th style="width:100px"></th>
       </tr>
     </thead>
     <tbody>
@@ -42,7 +47,14 @@
         <td class="mono">
           <span class="accent-c">/</span>{{ rule.pattern }}<span class="accent-c">/i</span>
         </td>
-        <td><span class="acct-chip"><span class="d"></span>{{ rule.category }}</span></td>
+        <td>
+          {% if rule.skip %}<span class="badge-want" style="color:var(--neg);border-color:var(--neg-dim)">SKIP</span>
+          {% elif rule.category %}<span class="acct-chip"><span class="d"></span>{{ rule.category }}</span>
+          {% else %}<span class="mono faint">—</span>{% endif %}
+        </td>
+        <td class="num mono {% if rule.reimbursement %}accent-c{% else %}faint{% endif %}" style="font-size:11px">
+          {% if rule.reimbursement %}-${{ '%.2f'|format(rule.reimbursement) }}{% else %}—{% endif %}
+        </td>
         <td class="mono faint" style="font-size:10px">{{ rule.created_at[:10] }}</td>
         <td>
           <div class="row-actions" style="opacity:1">

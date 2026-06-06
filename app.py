@@ -46,7 +46,8 @@ def _inject_globals():
         _accounts = []
         _stats    = {'txn_count': 0, 'month_net': 0, 'ytd_net': 0, 'month': CURRENT_MONTH}
 
-    return dict(page_url=page_url, _accounts=_accounts, _stats=_stats)
+    return dict(page_url=page_url, _accounts=_accounts, _stats=_stats,
+                _income_accts=db.INCOME_CATEGORIES)
 
 
 def login_required(f):
@@ -201,9 +202,13 @@ def export_transactions():
 def edit_transaction(tid):
     data = _form_to_transaction(request.form)
     db.update_transaction(tid, data)
-    if request.form.get('remember') == '1' and request.form.get('notes') and request.form.get('account'):
-        pattern = request.form['notes'].strip().lower()
-        db.save_merchant_rule(pattern, request.form['account'])
+    remember = request.form.get('remember') == '1'
+    skip     = request.form.get('skip') == '1'
+    if (remember or skip) and request.form.get('notes'):
+        pattern  = request.form['notes'].strip().lower()
+        category = request.form.get('account', '') if remember else ''
+        reimb    = float(request.form.get('reimbursement', 0) or 0)
+        db.save_merchant_rule(pattern, category, reimb, skip)
     return jsonify(success=True)
 
 
@@ -221,6 +226,14 @@ def delete_merchant_rule(rule_id):
     return redirect(url_for('merchant_rules'))
 
 
+@app.route('/merchant-rules/reapply', methods=['POST'])
+@login_required
+def reapply_merchant_rules():
+    updated, unchanged = importer.reapply_rules_to_existing()
+    flash(f'Reapplied rules: {updated} updated, {unchanged} unchanged.')
+    return redirect(url_for('merchant_rules'))
+
+
 @app.route('/transactions/<int:tid>/delete', methods=['POST'])
 @login_required
 def delete_transaction(tid):
@@ -235,13 +248,14 @@ def _form_to_transaction(form):
         dt = importer.parse_date(date_raw)
         month = importer.month_name(dt) if dt else ''
     return {
-        'date':         date_raw,
-        'account':      form.get('account', ''),
-        'amount':       float(form.get('amount', 0) or 0),
-        'notes':        form.get('notes', ''),
-        'expense_type': form.get('expense_type', ''),
-        'month':        month,
-        'bank':         form.get('bank', ''),
+        'date':          date_raw,
+        'account':       form.get('account', ''),
+        'amount':        float(form.get('amount', 0) or 0),
+        'notes':         form.get('notes', ''),
+        'expense_type':  form.get('expense_type', ''),
+        'month':         month,
+        'bank':          form.get('bank', ''),
+        'reimbursement': float(form.get('reimbursement', 0) or 0),
     }
 
 
@@ -275,6 +289,29 @@ def reports():
     income_data   = db.get_income_report(month)
     total_expense = sum(r['total'] for r in category_data)
     total_income  = sum(r['total'] for r in income_data)
+
+    budgets       = db.get_category_budgets()
+    spent_by_acct = {r['account']: r['total'] for r in category_data}
+    relevant      = (set(budgets) | set(spent_by_acct)) - db.INCOME_CATEGORIES
+    budget_rows   = []
+    for account in relevant:
+        limit = budgets.get(account)
+        spent = spent_by_acct.get(account, 0.0)
+        pct   = (spent / limit * 100) if limit else 0.0
+        budget_rows.append({
+            'account': account,
+            'limit':   limit,
+            'spent':   spent,
+            'pct':     pct,
+            'over':    bool(limit) and spent > limit,
+        })
+    # Budgeted rows first (sorted by % consumed desc), then unbudgeted (by spend desc)
+    budget_rows.sort(key=lambda b: (b['limit'] is None, -(b['pct'] if b['limit'] else b['spent'])))
+    unbudgeted_accounts = [a['name'] for a in db.get_accounts()
+                           if a['name'] not in budgets
+                           and a['name'] not in db.INCOME_CATEGORIES]
+    total_budget = sum(b['limit'] for b in budget_rows if b['limit'])
+
     return render_template('reports.html',
                            month=month,
                            months=months,
@@ -282,7 +319,32 @@ def reports():
                            need_want=need_want,
                            income_data=income_data,
                            total_expense=total_expense,
-                           total_income=total_income)
+                           total_income=total_income,
+                           budget_rows=budget_rows,
+                           unbudgeted_accounts=unbudgeted_accounts,
+                           total_budget=total_budget)
+
+
+@app.route('/budgets/save', methods=['POST'])
+@login_required
+def save_budget():
+    account = request.form.get('account', '').strip()
+    limit   = request.form.get('monthly_limit', '').strip()
+    if account and limit:
+        try:
+            db.save_category_budget(account, float(limit))
+        except ValueError:
+            pass
+    return redirect(request.referrer or url_for('reports'))
+
+
+@app.route('/budgets/delete', methods=['POST'])
+@login_required
+def delete_budget():
+    account = request.form.get('account', '').strip()
+    if account:
+        db.delete_category_budget(account)
+    return redirect(request.referrer or url_for('reports'))
 
 
 @app.route('/reports/category-transactions')
@@ -292,11 +354,15 @@ def category_transactions():
     account = request.args.get('account', '')
     txns    = db.get_transactions(month=month, account=account)
     return jsonify([{
-        'date':         t['date'],
-        'notes':        t['notes'],
-        'amount':       t['amount'],
-        'expense_type': t['expense_type'],
-        'bank':         t['bank'],
+        'id':            t['id'],
+        'date':          t['date'],
+        'account':       t['account'],
+        'notes':         t['notes'],
+        'amount':        t['amount'],
+        'reimbursement': t['reimbursement'] or 0,
+        'expense_type':  t['expense_type'],
+        'month':         t['month'],
+        'bank':          t['bank'],
     } for t in txns])
 
 
@@ -346,47 +412,59 @@ def import_page():
                            import_folder=str(IMPORT_FOLDER))
 
 
+BANK_UPLOAD_EXTS = ('.csv', '.xls', '.xlsx')
+
+
 @app.route('/import/bank-csv', methods=['POST'])
 @login_required
 def import_bank_csv():
-    f = request.files.get('file')
-    if not f or not f.filename:
-        flash('No file selected.')
-        return redirect(url_for('import_page'))
-    if not f.filename.lower().endswith('.csv'):
-        flash('Please upload a .csv file.')
+    files = [f for f in request.files.getlist('files') if f and f.filename]
+    if not files:
+        flash('No files selected.')
         return redirect(url_for('import_page'))
 
-    try:
-        content = f.read().decode('utf-8')
-    except UnicodeDecodeError:
-        content = f.read().decode('latin-1')
+    ok, bad = [], []
+    for f in files:
+        name = f.filename
+        if not name.lower().endswith(BANK_UPLOAD_EXTS):
+            bad.append(f'{name}: unsupported (use .csv/.xls/.xlsx)')
+            continue
+        try:
+            content = importer.read_upload_to_csv(f, name)
+        except Exception as e:
+            bad.append(f'{name}: read error ({e})')
+            continue
+        added, skipped, bank = importer.import_csv_string(content)
+        if bank:
+            db.log_import(name, bank, added, skipped)
+            ok.append(f'{name} → {bank}: {added} imported, {skipped} skipped')
+        else:
+            bad.append(f'{name}: could not detect bank format')
 
-    added, skipped, bank = importer.import_csv_string(content)
-    if bank:
-        db.log_import(f.filename, bank, added, skipped)
-        flash(f'{bank}: {added} transaction(s) imported, {skipped} duplicate(s) skipped.')
-    else:
-        flash('Could not detect bank format. Make sure the CSV has a header row (Amex, TD, or Simplii).')
+    for line in ok:
+        flash(line)
+    for line in bad:
+        flash(line)
     return redirect(url_for('import_page'))
 
 
 @app.route('/import/transactions-csv', methods=['POST'])
 @login_required
 def import_transactions_csv():
-    f = request.files.get('file')
-    if not f or not f.filename:
-        flash('No file selected.')
+    files = [f for f in request.files.getlist('files') if f and f.filename]
+    if not files:
+        flash('No files selected.')
         return redirect(url_for('import_page'))
 
-    try:
-        content = f.read().decode('utf-8')
-    except UnicodeDecodeError:
-        content = f.read().decode('latin-1')
-
-    added, skipped = importer.import_transactions_csv(content)
-    db.log_import(f.filename, 'Transactions Export', added, skipped)
-    flash(f'Transactions import: {added} transaction(s) added, {skipped} skipped.')
+    for f in files:
+        try:
+            content = importer.read_upload_to_csv(f, f.filename)
+        except Exception as e:
+            flash(f'{f.filename}: read error ({e})')
+            continue
+        added, skipped = importer.import_transactions_csv(content)
+        db.log_import(f.filename, 'Transactions Export', added, skipped)
+        flash(f'{f.filename}: {added} added, {skipped} skipped')
     return redirect(url_for('import_page'))
 
 

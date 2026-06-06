@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "macros.html" import icon %}
-{% block title %}Reports — Budget // Lux{% endblock %}
+{% block title %}Reports — Budget // Wev{% endblock %}
 {% block topbar_title %}Reports{% endblock %}
 
 {% block content %}
@@ -134,11 +134,180 @@
   </div>
 </div>
 
+<!-- Income Sources -->
+{% set inc_txns = income_data|sum(attribute='count') %}
+<div class="panel" style="margin-bottom:16px">
+  <div class="panel-head">
+    <span class="lbl"><span class="idx">[03]</span> Income Sources · {{ month }}</span>
+    {% if income_data %}
+    <span class="act mono faint" style="font-size:10px">
+      {{ income_data|length }} SOURCE{{ '' if income_data|length == 1 else 'S' }}
+      &nbsp;·&nbsp; ${{ '%.2f'|format(total_income) }}
+    </span>
+    {% endif %}
+  </div>
+  {% if income_data %}
+  {% set top = income_data[0] %}
+  {% set top_pct = (top.total / total_income * 100) if total_income else 0 %}
+  <div class="panel-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;border-bottom:1px solid var(--line-soft);padding-bottom:14px">
+    <div>
+      <div class="mono faint" style="font-size:10px;letter-spacing:0.12em">TOP SOURCE</div>
+      <div class="pos" style="font-size:14px;margin-top:4px">{{ top.account }}</div>
+      <div class="dim mono" style="font-size:10px;letter-spacing:0.08em">${{ '%.2f'|format(top.total) }} · {{ '%.0f'|format(top_pct) }}% OF INCOME</div>
+    </div>
+    <div>
+      <div class="mono faint" style="font-size:10px;letter-spacing:0.12em">DIVERSIFICATION</div>
+      <div style="font-size:14px;margin-top:4px">{{ income_data|length }} {{ 'source' if income_data|length == 1 else 'sources' }}</div>
+      <div class="dim mono" style="font-size:10px;letter-spacing:0.08em">{{ inc_txns }} TXN{{ '' if inc_txns == 1 else 'S' }} TOTAL</div>
+    </div>
+    <div>
+      <div class="mono faint" style="font-size:10px;letter-spacing:0.12em">AVG PER TXN</div>
+      <div style="font-size:14px;margin-top:4px">${{ '%.2f'|format(total_income / inc_txns) if inc_txns else '0.00' }}</div>
+      <div class="dim mono" style="font-size:10px;letter-spacing:0.08em">ACROSS ALL SOURCES</div>
+    </div>
+  </div>
+  <table class="data">
+    <thead>
+      <tr>
+        <th>Source</th>
+        <th class="num" style="width:120px">Amount</th>
+        <th style="width:200px">% of Income</th>
+        <th class="num" style="width:90px">Avg / Txn</th>
+        <th class="num" style="width:50px">TXS</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in income_data %}
+      {% set pct = (row.total / total_income * 100) if total_income else 0 %}
+      <tr class="inc-row" data-account="{{ row.account|e }}" style="cursor:pointer">
+        <td>
+          <span class="acct-chip">
+            <span class="d" style="background:var(--pos)"></span>
+            {{ row.account }}
+          </span>
+        </td>
+        <td class="num pos">${{ '%.2f'|format(row.total) }}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;height:3px;background:var(--bg-elev-2);border:1px solid var(--line-soft);position:relative">
+              <div style="position:absolute;top:0;left:0;height:100%;width:{{ pct|round }}%;background:var(--pos)"></div>
+            </div>
+            <span class="mono tabular" style="width:44px;text-align:right;font-size:11px">{{ '%.1f'|format(pct) }}%</span>
+          </div>
+        </td>
+        <td class="num dim">${{ '%.2f'|format(row.total / row.count) if row.count else '0.00' }}</td>
+        <td class="num dim">{{ row.count }}</td>
+      </tr>
+      <tr class="inc-drill-row hidden">
+        <td colspan="5" style="padding:0">
+          <div style="padding:12px 14px;border-top:1px solid var(--line-soft);background:var(--bg)">
+            <div class="inc-drill-content" style="font-size:11px"></div>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      <tr style="background:var(--bg-elev-2);font-weight:600">
+        <td class="mono" style="font-size:10px;letter-spacing:0.1em">TOTAL</td>
+        <td class="num pos">${{ '%.2f'|format(total_income) }}</td>
+        <td></td>
+        <td></td>
+        <td class="num">{{ inc_txns }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <div style="text-align:center;padding:24px;color:var(--text-faint);font-family:var(--mono);font-size:11px;letter-spacing:0.12em">◇ NO INCOME RECORDED FOR {{ month|upper }}</div>
+  {% endif %}
+</div>
+
+<!-- Budget vs. Actual -->
+<div class="panel" style="margin-bottom:16px">
+  <div class="panel-head">
+    <span class="lbl"><span class="idx">[04]</span> Budget vs. Actual · {{ month }}</span>
+    <span class="act mono faint" style="font-size:10px">
+      TOTAL ${{ '%.2f'|format(total_expense) }} / ${{ '%.2f'|format(total_budget) }}
+    </span>
+  </div>
+  <table class="data">
+    <thead>
+      <tr>
+        <th>Category</th>
+        <th class="num" style="width:160px">Spent / Limit</th>
+        <th style="width:220px">Progress</th>
+        <th style="width:170px">Limit</th>
+        <th style="width:50px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in budget_rows %}
+      <tr>
+        <td>{{ b.account }}</td>
+        <td class="num">
+          ${{ '%.2f'|format(b.spent) }}{% if b.limit %}<span class="dim"> / ${{ '%.2f'|format(b.limit) }}</span>{% endif %}
+        </td>
+        <td>
+          {% if b.limit %}
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;height:4px;background:var(--bg-elev-2);border:1px solid var(--line-soft);position:relative">
+              <div style="position:absolute;top:0;left:0;height:100%;width:{{ [b.pct, 100]|min|round }}%;background:{% if b.over %}var(--neg){% elif b.pct > 80 %}var(--warn){% else %}var(--pos){% endif %}"></div>
+            </div>
+            <span class="mono tabular" style="width:48px;text-align:right;font-size:11px;{% if b.over %}color:var(--neg){% endif %}">{{ '%.0f'|format(b.pct) }}%</span>
+          </div>
+          {% else %}
+          <span class="dim mono" style="font-size:10px;letter-spacing:0.12em">— NO LIMIT —</span>
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" action="/budgets/save" style="display:flex;gap:4px">
+            <input type="hidden" name="account" value="{{ b.account }}">
+            <input type="number" step="0.01" min="0" name="monthly_limit"
+                   value="{{ '%.2f'|format(b.limit) if b.limit else '' }}"
+                   class="input" style="padding:4px 6px;font-size:11px;width:100px"
+                   placeholder="set limit">
+            <button class="btn small" type="submit">Save</button>
+          </form>
+        </td>
+        <td>
+          {% if b.limit %}
+          <form method="post" action="/budgets/delete"
+                onsubmit="return confirm('Clear budget for {{ b.account }}?')">
+            <input type="hidden" name="account" value="{{ b.account }}">
+            <button class="btn small ghost danger" type="submit" title="Clear budget">×</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-faint);font-family:var(--mono);font-size:11px;letter-spacing:0.12em">◇ NO BUDGETS OR EXPENSES FOR {{ month|upper }}</td></tr>
+      {% endfor %}
+
+      {% if unbudgeted_accounts %}
+      <tr style="background:var(--bg-elev-2)">
+        <td colspan="5" style="padding:8px 14px">
+          <form method="post" action="/budgets/save" style="display:flex;gap:8px;align-items:center">
+            <span class="mono faint" style="font-size:10px;letter-spacing:0.12em">+ ADD BUDGET</span>
+            <select name="account" class="select" style="width:auto" required>
+              <option value="">— category —</option>
+              {% for a in unbudgeted_accounts %}
+              <option value="{{ a }}">{{ a }}</option>
+              {% endfor %}
+            </select>
+            <input type="number" step="0.01" min="0" name="monthly_limit"
+                   class="input" style="width:120px" placeholder="$ limit" required>
+            <button class="btn primary small" type="submit">Set</button>
+          </form>
+        </td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
 <!-- Need vs Want -->
 {% if need_want %}
 <div class="panel">
   <div class="panel-head">
-    <span class="lbl"><span class="idx">[03]</span> Need vs Want · Ratio Analysis</span>
+    <span class="lbl"><span class="idx">[05]</span> Need vs Want · Ratio Analysis</span>
   </div>
   <div class="panel-body">
     <div class="need-want-row">
@@ -177,6 +346,47 @@ const CAT_COLORS = [
 ];
 
 function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+// ── Drill-down edit/delete ────────────────────────────────────
+const TXN_CACHE = {}; // id -> txn
+function cacheTxns(_account, txns) { txns.forEach(t => { TXN_CACHE[t.id] = t; }); }
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+const ICON_EDIT  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><path d="M4 20h4L20 8l-4-4L4 16v4z"/></svg>';
+const ICON_TRASH = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
+
+function actionsCell(id) {
+  return `<div class="row-actions">
+    <button class="btn small ghost" onclick="editDrillTxn(${id})" title="Edit">${ICON_EDIT}</button>
+    <button class="btn small ghost danger" onclick="deleteDrillTxn(${id})" title="Delete">${ICON_TRASH}</button>
+  </div>`;
+}
+
+function editDrillTxn(id) {
+  const t = TXN_CACHE[id];
+  if (!t) return;
+  openEditModal({
+    id:            t.id,
+    date:          t.date,
+    account:       t.account,
+    amount:        t.amount,
+    reimbursement: t.reimbursement,
+    notes:         t.notes,
+    type:          t.expense_type,
+    month:         t.month,
+    bank:          t.bank,
+  });
+}
+
+async function deleteDrillTxn(id) {
+  if (!confirm('Delete this transaction?')) return;
+  await fetch(`/transactions/${id}/delete`, { method: 'POST' });
+  location.reload();
+}
 
 // Color swatches and bar fills
 document.querySelectorAll('.cat-swatch').forEach(el => {
@@ -259,7 +469,8 @@ async function drillInto(account, color) {
 
   if (!txns.length) { content.innerHTML = '<div style="color:var(--text-faint);font-family:var(--mono);font-size:11px">No transactions found.</div>'; return; }
 
-  const total = txns.reduce((s, t) => s + t.amount, 0);
+  const net = t => t.amount - (t.reimbursement || 0);
+  const total = txns.reduce((s, t) => s + net(t), 0);
   let html = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase">
       <span style="width:8px;height:8px;background:${color}"></span>
@@ -267,21 +478,23 @@ async function drillInto(account, color) {
       <span style="margin-left:auto;color:var(--text-faint)">${txns.length} txn${txns.length>1?'s':''} — <strong style="color:var(--text)">$${total.toFixed(2)}</strong></span>
     </div>
     <table class="data" style="font-size:11px">
-      <thead><tr><th>Date</th><th>Notes</th><th style="text-align:right">Amount</th><th>Type</th><th>Bank</th></tr></thead>
+      <thead><tr><th>Date</th><th>Notes</th><th style="text-align:right">Amount</th><th>Type</th><th>Bank</th><th style="width:64px"></th></tr></thead>
       <tbody>`;
-  txns.forEach(t => {
+  txns.forEach((t, i) => {
     const badge = t.expense_type === 'Need' ? '<span class="badge-need">Need</span>'
                 : t.expense_type === 'Want' ? '<span class="badge-want">Want</span>' : '';
-    html += `<tr>
+    html += `<tr id="drill-row-${t.id}">
       <td class="mono faint">${t.date}</td>
-      <td class="dim">${t.notes}</td>
-      <td class="num">$${t.amount.toFixed(2)}</td>
+      <td class="dim">${escapeHtml(t.notes)}</td>
+      <td class="num">$${net(t).toFixed(2)}</td>
       <td>${badge}</td>
-      <td class="mono faint">${t.bank||''}</td>
+      <td class="mono faint">${escapeHtml(t.bank||'')}</td>
+      <td>${actionsCell(t.id)}</td>
     </tr>`;
   });
   html += '</tbody></table>';
   content.innerHTML = html;
+  cacheTxns(account, txns);
 }
 
 function closeAllDrills() {
@@ -292,6 +505,69 @@ function closeAllDrills() {
 
 document.querySelectorAll('.cat-row').forEach((row, idx) => {
   row.addEventListener('click', () => drillInto(row.dataset.account, CAT_COLORS[idx % CAT_COLORS.length]));
+});
+
+// Income drill-down
+let activeIncome = null;
+async function drillIncome(account) {
+  if (activeIncome === account) { closeIncomeDrills(); return; }
+  closeIncomeDrills();
+  activeIncome = account;
+
+  let target = null;
+  document.querySelectorAll('.inc-row').forEach(row => {
+    if (row.dataset.account === account) {
+      row.style.background = 'var(--bg-hover)';
+      target = row.nextElementSibling;
+    }
+  });
+  if (!target) return;
+
+  const content = target.querySelector('.inc-drill-content');
+  content.innerHTML = '<div style="color:var(--text-faint);font-family:var(--mono);font-size:11px;padding:6px 0">Loading…</div>';
+  target.classList.remove('hidden');
+
+  const resp = await fetch(`/reports/category-transactions?month=${encodeURIComponent(MONTH)}&account=${encodeURIComponent(account)}`);
+  const txns = await resp.json();
+
+  if (!txns.length) {
+    content.innerHTML = '<div style="color:var(--text-faint);font-family:var(--mono);font-size:11px">No transactions found.</div>';
+    return;
+  }
+
+  const net = t => t.amount - (t.reimbursement || 0);
+  const total = txns.reduce((s, t) => s + net(t), 0);
+  let html = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase">
+      <span style="width:8px;height:8px;background:var(--pos)"></span>
+      <strong style="color:var(--text)">${account}</strong>
+      <span style="margin-left:auto;color:var(--text-faint)">${txns.length} txn${txns.length>1?'s':''} — <strong class="pos">$${total.toFixed(2)}</strong></span>
+    </div>
+    <table class="data" style="font-size:11px">
+      <thead><tr><th>Date</th><th>Notes</th><th style="text-align:right">Amount</th><th>Bank</th><th style="width:64px"></th></tr></thead>
+      <tbody>`;
+  txns.forEach((t, i) => {
+    html += `<tr id="drill-row-${t.id}">
+      <td class="mono faint">${t.date}</td>
+      <td class="dim">${escapeHtml(t.notes)}</td>
+      <td class="num pos">$${net(t).toFixed(2)}</td>
+      <td class="mono faint">${escapeHtml(t.bank||'')}</td>
+      <td>${actionsCell(t.id)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  content.innerHTML = html;
+  cacheTxns(account, txns);
+}
+
+function closeIncomeDrills() {
+  activeIncome = null;
+  document.querySelectorAll('.inc-drill-row').forEach(r => r.classList.add('hidden'));
+  document.querySelectorAll('.inc-row').forEach(r => r.style.background = '');
+}
+
+document.querySelectorAll('.inc-row').forEach(row => {
+  row.addEventListener('click', () => drillIncome(row.dataset.account));
 });
 </script>
 {% endblock %}

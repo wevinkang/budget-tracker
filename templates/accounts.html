@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% from "macros.html" import icon %}
-{% block title %}Accounts — Budget // Lux{% endblock %}
+{% block title %}Accounts — Budget // Wev{% endblock %}
 {% block topbar_title %}Accounts{% endblock %}
 
 {% block content %}
-{% set expense_accts = accounts | rejectattr('name','in',('Paycheck Income','Tax Income','Refund Income','Income')) | list %}
-{% set income_accts  = accounts | selectattr('name','in',('Paycheck Income','Tax Income','Refund Income','Income')) | list %}
+{% set expense_accts = accounts | rejectattr('name','in',_income_accts) | list %}
+{% set income_accts  = accounts | selectattr('name','in',_income_accts) | list %}
 
 <div class="screen-header">
   <div>
@@ -58,7 +58,7 @@
       {% for a in accounts %}
       <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line-soft)">
         <span class="mono faint" style="font-size:9px;width:22px;letter-spacing:0.1em">{{ '%02d'|format(loop.index) }}</span>
-        <span style="width:6px;height:6px;background:{% if a.name in ('Paycheck Income','Tax Income','Refund Income','Income') %}var(--pos){% else %}var(--accent){% endif %};flex-shrink:0"></span>
+        <span style="width:6px;height:6px;background:{% if a.name in _income_accts %}var(--pos){% else %}var(--accent){% endif %};flex-shrink:0"></span>
         <span style="flex:1;font-size:12px">{{ a.name }}</span>
         <button class="btn small ghost danger" onclick="deleteAccount({{ a.id }}, '{{ a.name|e }}', this)">
           {{ icon('trash', 10) }}

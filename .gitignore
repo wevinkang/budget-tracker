@@ -5,3 +5,16 @@ budget.db.tmp
 __pycache__/
 *.pyc
 *.pyo
+
+# Secrets and local config
+.env
+
+# Bank statements / financial exports — never commit
+*.csv
+*.xls
+*.xlsx
+
+# Local artifacts
+Budget App.zip
+*.zip
+brave_screenshot_raspberrypi.png
