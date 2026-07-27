@@ -1,0 +1,130 @@
+{% from "macros.html" import icon %}
+{#
+  Bank/Sheets upload cards + drop-zone behaviour. Shared by the Import page and
+  the Import modal on Transactions. Set `next_url` before including to control
+  where the import routes redirect back to (empty = the Import page).
+#}
+{% set next_url = next_url | default('') %}
+
+{% macro upload_card(idx, title, action, form_id, accept, multiple, primary_label, sublines, next_url) %}
+<div class="panel{% if idx == '01' %} bracketed{% endif %}">
+  {% if idx == '01' %}<span class="bk-tl"></span><span class="bk-br"></span>{% endif %}
+  <div class="panel-head">
+    <span class="lbl"><span class="idx">[{{ idx }}]</span> {{ title }}</span>
+  </div>
+  <div class="panel-body">
+    <div class="upload-meta">
+      {% for line in sublines %}<div>{{ line|safe }}</div>{% endfor %}
+    </div>
+    <form method="post" action="{{ action }}" enctype="multipart/form-data" id="{{ form_id }}" class="upload-form">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <input type="file" name="files" accept="{{ accept }}" {% if multiple %}multiple{% endif %}>
+      <div class="drop-zone" tabindex="0">
+        <div class="upload-icon">{{ icon('upload', 22) }}</div>
+        <div class="mono upload-primary">{{ primary_label }}</div>
+        <div class="mono faint upload-hint">{{ accept|upper|replace(',', ' · ') }}{% if multiple %} · MULTIPLE OK{% endif %}</div>
+        <div class="mono faint upload-fname">No file chosen</div>
+      </div>
+      <button type="submit" class="btn primary upload-submit" disabled>
+        {{ icon('upload', 12) }} IMPORT
+      </button>
+    </form>
+  </div>
+</div>
+{% endmacro %}
+
+<div class="dash-grid">
+  {{ upload_card(
+    '01', 'Upload Bank CSV', '/import/bank-csv', 'bankForm',
+    '.csv,.xls,.xlsx', true, 'DROP FILES OR BROWSE',
+    ['SUPPORTS: <span class="accent-c">AMEX · TD · SIMPLII</span> · AUTO-DETECTED FROM HEADER'],
+    next_url
+  ) }}
+  {{ upload_card(
+    '02', 'Google Sheets · Transactions Export', '/import/transactions-csv', 'sheetsForm',
+    '.csv', true, 'DROP SHEETS EXPORT(S)',
+    [
+      '<span class="dim">FILE →</span> Download · <span class="accent-c">Comma-separated values</span>',
+      '<span class="dim">COLS →</span> Date, Account, Amount, Notes, Expense Type, Month[, Bank]'
+    ],
+    next_url
+  ) }}
+</div>
+
+<script>
+  document.querySelectorAll('.upload-form').forEach(form => {
+    if (form.dataset.wired) return;   // guard against double-init if included twice
+    form.dataset.wired = '1';
+    const input  = form.querySelector('input[type=file]');
+    const zone   = form.querySelector('.drop-zone');
+    const fname  = form.querySelector('.upload-fname');
+    const submit = form.querySelector('.upload-submit');
+
+    const update = () => {
+      const n = input.files.length;
+      fname.textContent = '';
+      if (!n) {
+        fname.textContent = 'No file chosen';
+      } else {
+        const header = document.createElement('div');
+        header.className = 'upload-fname-header';
+        header.textContent = n === 1 ? '1 FILE READY' : n + ' FILES READY';
+        fname.appendChild(header);
+        const list = document.createElement('ul');
+        list.className = 'upload-fname-list';
+        for (const f of input.files) {
+          const li = document.createElement('li');
+          li.textContent = f.name;
+          list.appendChild(li);
+        }
+        fname.appendChild(list);
+      }
+      submit.disabled = !n;
+    };
+    input.addEventListener('change', update);
+    zone.addEventListener('click', () => input.click());
+    zone.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+    });
+
+    ['dragenter', 'dragover'].forEach(ev => {
+      zone.addEventListener(ev, e => {
+        e.preventDefault();
+        e.stopPropagation();
+        zone.classList.add('drag-over');
+      });
+    });
+    ['dragleave', 'dragend'].forEach(ev => {
+      zone.addEventListener(ev, e => {
+        e.preventDefault();
+        e.stopPropagation();
+        zone.classList.remove('drag-over');
+      });
+    });
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove('drag-over');
+      if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+      const dt = new DataTransfer();
+      const allowed = (input.accept || '')
+        .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      for (const f of e.dataTransfer.files) {
+        if (!allowed.length || allowed.some(a =>
+          a.startsWith('.') ? f.name.toLowerCase().endsWith(a) : f.type === a
+        )) dt.items.add(f);
+      }
+      if (!dt.files.length) return;
+      input.files = dt.files;
+      update();
+    });
+  });
+
+  // Prevent the browser from navigating away when files are dropped outside a zone
+  if (!window.__importDropGuard) {
+    window.__importDropGuard = true;
+    ['dragover', 'drop'].forEach(ev => {
+      window.addEventListener(ev, e => e.preventDefault());
+    });
+  }
+</script>

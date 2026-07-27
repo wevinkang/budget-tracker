@@ -139,6 +139,12 @@ def init_db():
             monthly_limit REAL NOT NULL,
             created_at    TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS ai_insights (
+            month        TEXT PRIMARY KEY,
+            content      TEXT NOT NULL,
+            generated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     conn.commit()
     _migrate_schema(conn)
@@ -155,6 +161,8 @@ def _migrate_schema(conn):
         conn.execute('ALTER TABLE merchant_rules ADD COLUMN reimbursement REAL DEFAULT 0')
     if 'skip' not in existing_rules:
         conn.execute('ALTER TABLE merchant_rules ADD COLUMN skip INTEGER DEFAULT 0')
+    if 'label' not in existing_txn:
+        conn.execute("ALTER TABLE transactions ADD COLUMN label TEXT DEFAULT ''")
     conn.commit()
 
 
@@ -211,25 +219,27 @@ def get_transaction(id):
 
 def add_transaction(data):
     conn = get_db()
-    conn.execute(
-        'INSERT INTO transactions (date, account, amount, notes, expense_type, month, bank, reimbursement) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    cur = conn.execute(
+        'INSERT INTO transactions (date, account, amount, notes, expense_type, month, bank, reimbursement, label) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (data['date'], data['account'], data['amount'], data['notes'],
          data['expense_type'], data['month'], data.get('bank', ''),
-         data.get('reimbursement', 0) or 0)
+         data.get('reimbursement', 0) or 0, data.get('label', '') or '')
     )
     conn.commit()
+    new_id = cur.lastrowid
     conn.close()
+    return new_id
 
 
 def update_transaction(id, data):
     conn = get_db()
     conn.execute(
         'UPDATE transactions SET date=?, account=?, amount=?, notes=?, '
-        'expense_type=?, month=?, bank=?, reimbursement=? WHERE id=?',
+        'expense_type=?, month=?, bank=?, reimbursement=?, label=? WHERE id=?',
         (data['date'], data['account'], data['amount'], data['notes'],
          data['expense_type'], data['month'], data.get('bank', ''),
-         data.get('reimbursement', 0) or 0, id)
+         data.get('reimbursement', 0) or 0, data.get('label', '') or '', id)
     )
     conn.commit()
     conn.close()
@@ -240,6 +250,73 @@ def delete_transaction(id):
     conn.execute('DELETE FROM transactions WHERE id=?', (id,))
     conn.commit()
     conn.close()
+
+
+def get_expenses_for_reimbursement(limit=200):
+    """Recent expense rows (non-income, categorized) that still have unreimbursed
+    net remaining, to offer as targets when applying an incoming payment. Fully
+    reimbursed rows (net <= 0) are excluded since nothing can be applied to them."""
+    conn = get_db()
+    ph = ','.join('?' * len(INCOME_CATEGORIES))
+    rows = conn.execute(
+        f'SELECT id, date, account, notes, amount, reimbursement FROM transactions '
+        f'WHERE account NOT IN ({ph}) AND account != "" '
+        f'AND (amount - COALESCE(reimbursement, 0)) > 0.005 '
+        f'ORDER BY date DESC, id DESC LIMIT ?',
+        list(INCOME_CATEGORIES) + [limit]
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def apply_reimbursement(payment_id, expense_id, amount=None):
+    """Apply (part of) an incoming payment to an expense's reimbursement.
+
+    The applied portion is capped so the expense is never over-reimbursed (its
+    net `amount - reimbursement` can't drop below zero) and never exceeds the
+    payment's remaining amount. When `amount` is None, applies as much as the
+    expense can absorb — the sensible default for "cover this expense".
+
+    The payment row's amount is reduced by the applied portion; the row is
+    deleted only once fully consumed. This lets a single deposit be split across
+    several expenses instead of forcing the whole amount onto one (which used to
+    push a smaller expense negative).
+
+    Returns {applied, expense_reimbursement, payment_remaining, payment_deleted},
+    or None if a row is missing or nothing could be applied (expense already full)."""
+    conn = get_db()
+    payment = conn.execute('SELECT amount FROM transactions WHERE id=?', (payment_id,)).fetchone()
+    expense = conn.execute('SELECT amount, reimbursement FROM transactions WHERE id=?', (expense_id,)).fetchone()
+    if not payment or not expense:
+        conn.close()
+        return None
+
+    pay_amt = payment['amount'] or 0
+    exp_net = (expense['amount'] or 0) - (expense['reimbursement'] or 0)
+    headroom = min(pay_amt, exp_net)          # most we can apply without going negative
+    applied = headroom if amount is None else min(amount, headroom)
+    applied = round(applied, 2)
+    if applied <= 0:
+        conn.close()
+        return None
+
+    new_reimb = round((expense['reimbursement'] or 0) + applied, 2)
+    new_pay   = round(pay_amt - applied, 2)
+    conn.execute('UPDATE transactions SET reimbursement=? WHERE id=?', (new_reimb, expense_id))
+    payment_deleted = new_pay <= 0.005
+    if payment_deleted:
+        conn.execute('DELETE FROM transactions WHERE id=?', (payment_id,))
+        new_pay = 0.0
+    else:
+        conn.execute('UPDATE transactions SET amount=? WHERE id=?', (new_pay, payment_id))
+    conn.commit()
+    conn.close()
+    return {
+        'applied': applied,
+        'expense_reimbursement': new_reimb,
+        'payment_remaining': new_pay,
+        'payment_deleted': payment_deleted,
+    }
 
 
 def get_dedupe_keys():
@@ -427,9 +504,42 @@ def save_merchant_rule(pattern, category, reimbursement=0, skip=False):
     conn.close()
 
 
+def get_insight(month):
+    """Return {'content', 'generated_at'} for a month's cached AI insight, or None."""
+    conn = get_db()
+    row = conn.execute(
+        'SELECT content, generated_at FROM ai_insights WHERE month=?', (month,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_insight(month, content):
+    conn = get_db()
+    conn.execute(
+        'INSERT INTO ai_insights (month, content, generated_at) '
+        "VALUES (?, ?, CURRENT_TIMESTAMP) "
+        'ON CONFLICT(month) DO UPDATE SET content=excluded.content, '
+        'generated_at=CURRENT_TIMESTAMP',
+        (month, content)
+    )
+    conn.commit()
+    conn.close()
+
+
 def delete_merchant_rule(rule_id):
     conn = get_db()
     conn.execute('DELETE FROM merchant_rules WHERE id=?', (rule_id,))
+    conn.commit()
+    conn.close()
+
+
+def remove_skip_rule(pattern):
+    """Delete a skip rule for the given pattern (used when a wrongly auto-skipped
+    transfer is imported anyway). No-op if the pattern has no skip rule."""
+    conn = get_db()
+    conn.execute('DELETE FROM merchant_rules WHERE pattern=? AND skip=1',
+                 (pattern.lower().strip(),))
     conn.commit()
     conn.close()
 

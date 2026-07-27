@@ -376,6 +376,7 @@ function editDrillTxn(id) {
     amount:        t.amount,
     reimbursement: t.reimbursement,
     notes:         t.notes,
+    label:         t.label,
     type:          t.expense_type,
     month:         t.month,
     bank:          t.bank,
@@ -478,14 +479,14 @@ async function drillInto(account, color) {
       <span style="margin-left:auto;color:var(--text-faint)">${txns.length} txn${txns.length>1?'s':''} — <strong style="color:var(--text)">$${total.toFixed(2)}</strong></span>
     </div>
     <table class="data" style="font-size:11px">
-      <thead><tr><th>Date</th><th>Notes</th><th style="text-align:right">Amount</th><th>Type</th><th>Bank</th><th style="width:64px"></th></tr></thead>
+      <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th>Type</th><th>Bank</th><th style="width:64px"></th></tr></thead>
       <tbody>`;
   txns.forEach((t, i) => {
     const badge = t.expense_type === 'Need' ? '<span class="badge-need">Need</span>'
                 : t.expense_type === 'Want' ? '<span class="badge-want">Want</span>' : '';
     html += `<tr id="drill-row-${t.id}">
       <td class="mono faint">${t.date}</td>
-      <td class="dim">${escapeHtml(t.notes)}</td>
+      <td class="dim">${escapeHtml(t.label || t.notes)}</td>
       <td class="num">$${net(t).toFixed(2)}</td>
       <td>${badge}</td>
       <td class="mono faint">${escapeHtml(t.bank||'')}</td>
@@ -544,12 +545,12 @@ async function drillIncome(account) {
       <span style="margin-left:auto;color:var(--text-faint)">${txns.length} txn${txns.length>1?'s':''} — <strong class="pos">$${total.toFixed(2)}</strong></span>
     </div>
     <table class="data" style="font-size:11px">
-      <thead><tr><th>Date</th><th>Notes</th><th style="text-align:right">Amount</th><th>Bank</th><th style="width:64px"></th></tr></thead>
+      <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th>Bank</th><th style="width:64px"></th></tr></thead>
       <tbody>`;
   txns.forEach((t, i) => {
     html += `<tr id="drill-row-${t.id}">
       <td class="mono faint">${t.date}</td>
-      <td class="dim">${escapeHtml(t.notes)}</td>
+      <td class="dim">${escapeHtml(t.label || t.notes)}</td>
       <td class="num pos">$${net(t).toFixed(2)}</td>
       <td class="mono faint">${escapeHtml(t.bank||'')}</td>
       <td>${actionsCell(t.id)}</td>

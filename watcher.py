@@ -37,7 +37,7 @@ class CSVHandler(FileSystemEventHandler):
             logger.error(f'Could not read {path.name}: {e}')
             return
 
-        added, skipped, bank = importer.import_csv_string(content)
+        added, skipped, bank, *_ = importer.import_csv_string(content)
 
         if bank:
             logger.info(f'{path.name} → {bank}: {added} imported, {skipped} skipped')

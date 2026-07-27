@@ -1,0 +1,78 @@
+{#
+  Auto-skipped transfers/payments review modal. Rendered after an import that
+  dropped rows via a heuristic (masked-card regex or the AI transfer verdict).
+  Shared by the Import page and Transactions (both read `skip_review` from the
+  session after an import redirect). Exact SKIP_PATTERNS stay silent — only the
+  fuzzy skips show here so a wrong call can be recovered.
+#}
+{% if skip_review %}
+<div class="modal-scrim" id="skipScrim" onclick="if(event.target===this)closeSkip()">
+  <div class="modal-card" style="width:760px">
+    <div class="modal-head">
+      <span>AUTO-SKIPPED · TRANSFERS &amp; PAYMENTS [{{ '%02d'|format(skip_review|length) }}]</span>
+      <button onclick="closeSkip()" style="color:var(--text-faint);font-size:16px">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="upload-meta" style="margin-bottom:14px">
+        <div>These looked like <span class="accent-c">credit-card payments or internal transfers</span> and were left out — they're already counted on the source statement.</div>
+        <div class="faint">Wrongly caught? <b>Import anyway</b> adds it and stops skipping that merchant.</div>
+      </div>
+      <table class="data">
+        <thead>
+          <tr>
+            <th style="width:96px">Date</th>
+            <th>Merchant</th>
+            <th class="num" style="width:90px">Amount</th>
+            <th style="width:64px">Why</th>
+            <th style="width:130px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in skip_review %}
+          <tr class="skip-row"
+              data-date="{{ r.date }}"
+              data-account="{{ r.account|e }}"
+              data-amount="{{ r.amount }}"
+              data-notes="{{ r.merchant|e }}"
+              data-type="{{ r.expense_type|e }}"
+              data-month="{{ r.month|e }}"
+              data-bank="{{ r.bank|e }}"
+              data-pattern="{{ r.pattern|e }}">
+            <td class="mono faint">{{ r.date }}</td>
+            <td class="dim">{{ r.merchant }}</td>
+            <td class="num mono">${{ '%.2f'|format(r.amount) }}</td>
+            <td class="mono faint" style="font-size:10px;letter-spacing:0.08em">{{ 'AI' if r.reason == 'ai' else 'CARD#' }}</td>
+            <td><button type="button" class="btn small" onclick="importAnyway(this)">Import anyway</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn primary" onclick="closeSkip()">DONE</button>
+    </div>
+  </div>
+</div>
+<script>
+  function closeSkip() {
+    const s = document.getElementById('skipScrim');
+    if (s) s.remove();
+  }
+  function importAnyway(btn) {
+    const d = btn.closest('.skip-row').dataset;
+    const body = new URLSearchParams({
+      date: d.date, account: d.account, amount: d.amount, notes: d.notes,
+      expense_type: d.type, month: d.month, bank: d.bank, pattern: d.pattern
+    });
+    btn.disabled = true;
+    btn.textContent = '…';
+    fetch('/import/unskip', { method: 'POST', body })
+      .then(r => r.json())
+      .then(x => {
+        if (x.success) { btn.textContent = 'IMPORTED ✓'; btn.classList.add('primary'); }
+        else { btn.disabled = false; btn.textContent = 'Import anyway'; }
+      })
+      .catch(() => { btn.disabled = false; btn.textContent = 'Import anyway'; });
+  }
+</script>
+{% endif %}

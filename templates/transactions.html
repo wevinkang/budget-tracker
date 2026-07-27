@@ -25,6 +25,9 @@
   <div class="screen-actions">
     <a href="/transactions/export?month={{ selected_month }}&account={{ selected_account }}&expense_type={{ selected_expense_type }}&search={{ search }}"
        class="btn">{{ icon('download', 12) }} Export CSV</a>
+    <button class="btn" onclick="openImportModal()">
+      {{ icon('import', 12) }} Import
+    </button>
     <button class="btn primary" onclick="openAddModal('/transactions')">
       {{ icon('plus', 12) }} Add Transaction
     </button>
@@ -36,7 +39,7 @@
   <div class="tx-toolbar">
     <div class="tx-search">
       <span class="ic">{{ icon('search', 14) }}</span>
-      <input class="input" name="search" placeholder="Search notes, accounts…" value="{{ search }}" style="font-size:12px">
+      <input class="input" name="search" placeholder="Search description, accounts…" value="{{ search }}" style="font-size:12px">
     </div>
     <select name="month" class="select" style="width:auto" onchange="this.form.submit()">
       <option value="">ALL MONTHS</option>
@@ -70,7 +73,7 @@
       <tr>
         <th style="width:110px">Date</th>
         <th>Account</th>
-        <th>Notes</th>
+        <th>Description</th>
         <th style="width:90px">Type</th>
         <th style="width:80px" class="d-md">Bank</th>
         <th style="text-align:right;width:120px">Amount</th>
@@ -87,7 +90,7 @@
             {{ t.account }}
           </span>
         </td>
-        <td class="dim">{{ t.notes }}</td>
+        <td class="dim">{{ t.label or t.notes }}</td>
         <td>
           {% if t.expense_type == 'Need' %}<span class="badge-need">Need</span>
           {% elif t.expense_type == 'Want' %}<span class="badge-want">Want</span>
@@ -105,6 +108,10 @@
         </td>
         <td>
           <div class="row-actions">
+            {% if is_income %}
+            <button class="btn small ghost" title="Apply as reimbursement to an expense"
+              onclick='openReimburseModal({{ {"id": t.id, "amount": t.amount, "date": t.date, "notes": t.notes}|tojson }})'>↩</button>
+            {% endif %}
             <button class="btn small ghost" onclick="editRow(this)"
               data-id="{{ t.id }}"
               data-date="{{ t.date }}"
@@ -112,6 +119,7 @@
               data-amount="{{ t.amount }}"
               data-reimbursement="{{ t.reimbursement or 0 }}"
               data-notes="{{ t.notes|e }}"
+              data-label="{{ t.label|e }}"
               data-type="{{ t.expense_type|e }}"
               data-month="{{ t.month|e }}"
               data-bank="{{ t.bank|e }}">
@@ -157,10 +165,191 @@
   <a href="{{ page_url(total_pages) }}" class="{% if page == total_pages %}disabled{% endif %}">»</a>
 </div>
 {% endif %}
+
+<!-- Reimbursement picker -->
+<div class="modal-scrim hidden" id="reimbScrim" onclick="if(event.target===this)closeReimburse()">
+  <div class="modal-card">
+    <div class="modal-head">
+      <span>APPLY REIMBURSEMENT</span>
+      <button onclick="closeReimburse()" style="color:var(--text-faint);font-size:16px">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="reimbPaymentLabel" class="dim" style="font-size:12px;margin-bottom:12px;line-height:1.5"></div>
+      <div class="tx-search" style="margin-bottom:10px">
+        <span class="ic">{{ icon('search', 14) }}</span>
+        <input class="input" id="reimbSearch" placeholder="Search expenses…" style="font-size:12px" autocomplete="off"
+               oninput="renderReimbList(this.value)">
+      </div>
+      <div id="reimbList" class="reimb-list"></div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" onclick="closeReimburse()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import modal -->
+<div class="modal-scrim hidden" id="importScrim" onclick="if(event.target===this)closeImportModal()">
+  <div class="modal-card" style="width:860px;max-width:96vw">
+    <div class="modal-head">
+      <span>IMPORT DATA</span>
+      <button onclick="closeImportModal()" style="color:var(--text-faint);font-size:16px">✕</button>
+    </div>
+    <div class="modal-body">
+      {% set next_url = request.full_path %}
+      {% include "_import_panels.html" %}
+      <div class="banner" style="margin-top:14px">
+        <div class="banner-tag">AUTO-IMPORT ◈</div>
+        <div class="banner-body">
+          Drop bank CSVs into the watched folder for hands-free import, or see history &amp; undo on the
+          <a href="/import" class="accent-c">Import page</a>.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% include "_ai_review.html" %}
+{% include "_skip_review.html" %}
+{% include "_etransfer_review.html" %}
 {% endblock %}
 
 {% block scripts %}
+<style>
+.reimb-list { max-height: 340px; overflow-y: auto; display:flex; flex-direction:column; gap:5px; }
+.reimb-item { display:grid; grid-template-columns: 60px 1fr auto auto; gap:10px; align-items:center;
+  width:100%; text-align:left; padding:9px 11px; background:var(--bg-elev-2); border:1px solid var(--line);
+  border-radius:var(--radius); color:inherit; font:inherit; }
+.reimb-item:hover { border-color:var(--line-strong); }
+.reimb-item .reimb-date { font-family:var(--mono); font-size:10px; color:var(--text-faint); }
+.reimb-item .reimb-acct { font-size:11px; color:var(--text-dim); }
+.reimb-item .reimb-notes { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.reimb-item .reimb-amt { font-family:var(--mono); font-size:12px; white-space:nowrap; text-align:right; }
+.reimb-apply { display:flex; align-items:center; gap:6px; }
+.reimb-apply .reimb-amt-input { width:74px; font-size:11px; padding:5px 7px; text-align:right;
+  font-family:var(--mono); }
+.reimb-empty { padding:22px; text-align:center; color:var(--text-faint); font-family:var(--mono); font-size:11px; letter-spacing:0.1em; }
+</style>
 <script>
+// ── Reimbursement picker ───────────────────────────────────────
+let reimbPayment = null;      // {id, amount (remaining), date, notes}
+let reimbCandidates = [];
+let reimbApplied = false;     // did we change anything → reload table on close
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : s;
+  return d.innerHTML;
+}
+
+function renderReimbHeader() {
+  document.getElementById('reimbPaymentLabel').innerHTML =
+    `<b style="color:var(--pos)">$${Number(reimbPayment.amount).toFixed(2)}</b> remaining from ` +
+    `“${escapeHtml(reimbPayment.notes) || 'payment'}” (${reimbPayment.date}). ` +
+    `Split it across as many expenses as you like — each defaults to the most that expense can absorb.`;
+}
+
+async function loadReimbCandidates() {
+  try {
+    const resp = await fetch('/reimbursements/candidates');
+    reimbCandidates = await resp.json();
+  } catch (e) {
+    reimbCandidates = [];
+  }
+}
+
+async function openReimburseModal(payment) {
+  reimbPayment = { ...payment, amount: Number(payment.amount) };
+  reimbApplied = false;
+  renderReimbHeader();
+  document.getElementById('reimbSearch').value = '';
+  document.getElementById('reimbList').innerHTML = '<div class="reimb-empty">LOADING…</div>';
+  document.getElementById('reimbScrim').classList.remove('hidden');
+  await loadReimbCandidates();
+  renderReimbList('');
+  document.getElementById('reimbSearch').focus();
+}
+
+function renderReimbList(q) {
+  q = (q || '').toLowerCase();
+  const remaining = reimbPayment ? reimbPayment.amount : 0;
+  const rows = reimbCandidates.filter(c =>
+    !q || (c.notes || '').toLowerCase().includes(q)
+       || (c.account || '').toLowerCase().includes(q)
+       || String(c.amount).includes(q)
+  ).slice(0, 80);
+  const list = document.getElementById('reimbList');
+  if (!rows.length) { list.innerHTML = '<div class="reimb-empty">◇ NO MATCHING EXPENSES</div>'; return; }
+  list.innerHTML = rows.map(c => {
+    const net = c.amount - (c.reimbursement || 0);
+    const already = c.reimbursement ? ` · ↩$${Number(c.reimbursement).toFixed(2)}` : '';
+    // Default/cap the applied amount at what this expense can absorb and what's
+    // left of the payment — structurally preventing an over-reimbursed negative.
+    const maxApply = Math.max(0, Math.round(Math.min(net, remaining) * 100) / 100);
+    return `<div class="reimb-item">
+      <span class="reimb-date">${c.date}</span>
+      <span>
+        <span class="reimb-acct">${escapeHtml(c.account)}</span><br>
+        <span class="reimb-notes">${escapeHtml(c.notes) || '—'}</span>
+      </span>
+      <span class="reimb-amt neg">$${net.toFixed(2)}${already}</span>
+      <span class="reimb-apply">
+        <input type="number" class="input reimb-amt-input" step="0.01" min="0.01"
+               max="${maxApply.toFixed(2)}" value="${maxApply.toFixed(2)}"
+               ${remaining <= 0.005 ? 'disabled' : ''}>
+        <button type="button" class="btn small primary" onclick="applyReimbursement(${c.id}, this)"
+                ${remaining <= 0.005 ? 'disabled' : ''}>Apply</button>
+      </span>
+    </div>`;
+  }).join('');
+}
+
+async function applyReimbursement(expenseId, btn) {
+  const input = btn.closest('.reimb-item').querySelector('.reimb-amt-input');
+  const amt = parseFloat(input.value);
+  if (!(amt > 0)) { input.focus(); return; }
+
+  const form = new FormData();
+  form.append('payment_id', reimbPayment.id);
+  form.append('expense_id', expenseId);
+  form.append('amount', amt.toFixed(2));
+  btn.disabled = true;
+  btn.textContent = '…';
+
+  const resp = await fetch('/reimbursements/apply', { method: 'POST', body: form });
+  const data = await resp.json().catch(() => ({}));
+  if (!data.success) {
+    alert(data.error || 'Failed to apply reimbursement.');
+    btn.disabled = false; btn.textContent = 'Apply';
+    return;
+  }
+
+  reimbApplied = true;
+  reimbPayment.amount = data.payment_remaining;
+  // Payment fully consumed → nothing left to split; refresh the table.
+  if (data.payment_deleted || data.payment_remaining <= 0.005) { location.reload(); return; }
+
+  // Otherwise keep the modal open for the remainder: update the header and
+  // re-pull candidates so the just-reimbursed expense reflects its new net.
+  renderReimbHeader();
+  await loadReimbCandidates();
+  renderReimbList(document.getElementById('reimbSearch').value);
+}
+
+function closeReimburse() {
+  document.getElementById('reimbScrim').classList.add('hidden');
+  // A partial application leaves the table stale until reloaded.
+  if (reimbApplied) location.reload();
+}
+
+// ── Import modal ───────────────────────────────────────────────
+function openImportModal()  { document.getElementById('importScrim').classList.remove('hidden'); }
+function closeImportModal() { document.getElementById('importScrim').classList.add('hidden'); }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeReimburse(); closeImportModal(); }
+});
+
 function editRow(btn) {
   openEditModal({
     id:            btn.dataset.id,
@@ -169,6 +358,7 @@ function editRow(btn) {
     amount:        btn.dataset.amount,
     reimbursement: btn.dataset.reimbursement,
     notes:         btn.dataset.notes,
+    label:         btn.dataset.label,
     type:          btn.dataset.type,
     month:         btn.dataset.month,
     bank:          btn.dataset.bank,

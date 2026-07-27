@@ -1,0 +1,89 @@
+{#
+  E-transfer labeling review. Rendered whenever an import added e-transfer
+  expenses — Interac e-transfers carry generic bank text (e.g. "INTERAC
+  E-TRANSFER") so categorize() can't map them to a category. Ask what each one
+  was actually for. The label is saved separately from the raw bank text
+  (`notes`), which stays untouched — re-importing the same file still dedupes
+  correctly even after labeling. Shared by the Import page and Transactions
+  (both read `etransfer_review` from the session after an import redirect).
+#}
+{% if etransfer_review %}
+<div class="modal-scrim" id="etScrim" onclick="if(event.target===this)closeEt()">
+  <div class="modal-card" style="width:780px">
+    <div class="modal-head">
+      <span>E-TRANSFERS · WHAT WAS THIS FOR? [{{ '%02d'|format(etransfer_review|length) }}]</span>
+      <button onclick="closeEt()" style="color:var(--text-faint);font-size:16px">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="upload-meta" style="margin-bottom:14px">
+        <div>These are <span class="accent-c">Interac e-transfers</span> — usually a payment to a friend, not a merchant, so the bank text alone doesn't say what they were for.</div>
+        <div class="faint">Your sub-description replaces the description shown in Transactions. The original bank text is kept privately so re-importing this file still skips these rows.</div>
+      </div>
+      <table class="data">
+        <thead>
+          <tr>
+            <th style="width:96px">Date</th>
+            <th>Bank text</th>
+            <th class="num" style="width:90px">Amount</th>
+            <th style="width:220px">What was this for?</th>
+            <th style="width:180px">Category</th>
+            <th style="width:78px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in etransfer_review %}
+          <tr class="et-row" data-id="{{ r.id }}">
+            <td class="mono faint">{{ r.date }}</td>
+            <td class="faint" style="font-size:10px">{{ r.merchant }}</td>
+            <td class="num mono">${{ '%.2f'|format(r.amount) }}</td>
+            <td><input type="text" class="input et-label" style="font-size:11px" placeholder="e.g. Rent split w/ Sam"></td>
+            <td>
+              <select class="select et-cat" style="font-size:11px">
+                <option value="">— select —</option>
+                {% for a in _accounts %}
+                <option value="{{ a.name }}">{{ a.name }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <button type="button" class="btn small" onclick="saveEt(this)">SAVE</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn primary" onclick="closeEt()">DONE</button>
+    </div>
+  </div>
+</div>
+<script>
+  function closeEt() {
+    const s = document.getElementById('etScrim');
+    if (s) s.remove();
+  }
+  function saveEt(btn) {
+    const row = btn.closest('.et-row');
+    const category = row.querySelector('.et-cat').value;
+    if (!category) { row.querySelector('.et-cat').focus(); return; }
+    const label = row.querySelector('.et-label').value.trim();
+    const body = new URLSearchParams({ account: category, label });
+    btn.disabled = true;
+    btn.textContent = '…';
+    fetch('/import/label/' + row.dataset.id, { method: 'POST', body })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          btn.textContent = 'SAVED ✓';
+          btn.classList.add('primary');
+          row.querySelector('.et-label').disabled = true;
+          row.querySelector('.et-cat').disabled = true;
+        } else {
+          btn.disabled = false; btn.textContent = 'SAVE';
+        }
+      })
+      .catch(() => { btn.disabled = false; btn.textContent = 'SAVE'; });
+  }
+</script>
+{% endif %}

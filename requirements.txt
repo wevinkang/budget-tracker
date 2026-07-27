@@ -3,3 +3,4 @@ watchdog
 sqlcipher3
 openpyxl
 xlrd
+anthropic

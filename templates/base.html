@@ -171,8 +171,12 @@
           </div>
         </div>
         <div class="form-group">
-          <label>Notes</label>
+          <label>Description</label>
           <input type="text" class="input" id="f_notes" name="notes">
+        </div>
+        <div class="form-group">
+          <label>Sub-Description <span class="mono faint" style="font-size:9px;letter-spacing:0.06em;text-transform:none">shown instead of description — e.g. what an e-transfer was for</span></label>
+          <input type="text" class="input" id="f_label" name="label" placeholder="e.g. Rent split w/ Sam">
         </div>
         <div id="rememberWrap" class="form-group hidden">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;text-transform:none;letter-spacing:0">
@@ -325,6 +329,7 @@ function openEditModal(data) {
   document.getElementById('f_amount').value         = data.amount;
   document.getElementById('f_reimbursement').value  = data.reimbursement || '';
   document.getElementById('f_notes').value          = data.notes;
+  document.getElementById('f_label').value          = data.label || '';
   document.getElementById('f_type').value           = data.type;
   document.getElementById('f_month').value          = data.month;
   document.getElementById('f_bank').value           = data.bank;

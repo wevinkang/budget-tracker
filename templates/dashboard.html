@@ -101,10 +101,91 @@
   </div>
 </div>
 
+{% if ai_enabled %}
+{% set neg = insight and insight.net is not none and insight.net < 0 %}
+{% set tone = 'neg' if neg else 'pos' %}
+<!-- AI insights -->
+<div class="panel">
+  <div class="panel-head">
+    <span class="lbl">
+      <span class="dot" style="width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 2s ease-in-out infinite"></span>
+      <span class="idx">[07]</span> AI Insights · {{ month }}
+    </span>
+    <form method="post" action="/insights/{{ month }}" style="margin:0">
+      <button class="act" type="submit" style="background:none;border:none;cursor:pointer">
+        {{ 'REFRESH →' if insight else 'GENERATE →' }}
+      </button>
+    </form>
+  </div>
+
+  {% if insight %}
+  <div class="panel-body">
+
+    <!-- Hero: net overspend / surplus -->
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:32px;flex-wrap:wrap;padding:22px 24px;border:1px solid var(--{{ tone }}-dim);border-left:3px solid var(--{{ tone }});background:var(--bg-elev-2)">
+      <div style="flex:1 1 360px">
+        <div class="mono" style="font-size:10px;letter-spacing:0.22em;color:var(--text-dim);margin-bottom:12px">NET {{ 'OVERSPEND' if neg else 'SURPLUS' }} // {{ month|upper }}</div>
+        {% if insight.net is not none %}
+        <div class="mono tabular" style="font-size:40px;font-weight:600;color:var(--{{ tone }});line-height:1;letter-spacing:-0.01em">{{ '−' if neg else '+' }}${{ '%.2f'|format(insight.net|abs) }}</div>
+        {% endif %}
+        <div style="margin-top:14px;font-size:13px;line-height:1.5;color:var(--text-dim);max-width:460px">{{ insight.summary }}</div>
+      </div>
+      {% if insight.income is not none and insight.expenses is not none %}
+      {% set bar_max = [insight.income, insight.expenses]|max %}
+      <div style="flex:0 0 260px;display:flex;flex-direction:column;gap:12px">
+        <div>
+          <div class="mono" style="display:flex;justify-content:space-between;font-size:10px;letter-spacing:0.15em;color:var(--text-faint);margin-bottom:6px"><span>INCOME</span><span style="color:var(--pos)">${{ '%.2f'|format(insight.income) }}</span></div>
+          <div style="height:6px;background:var(--bg-elev-2);border:1px solid var(--line-soft)"><div style="height:100%;width:{{ (insight.income / bar_max * 100) if bar_max else 0 }}%;background:var(--pos)"></div></div>
+        </div>
+        <div>
+          <div class="mono" style="display:flex;justify-content:space-between;font-size:10px;letter-spacing:0.15em;color:var(--text-faint);margin-bottom:6px"><span>EXPENSES</span><span style="color:var(--neg)">${{ '%.2f'|format(insight.expenses) }}</span></div>
+          <div style="height:6px;background:var(--bg-elev-2);border:1px solid var(--line-soft)"><div style="height:100%;width:{{ (insight.expenses / bar_max * 100) if bar_max else 0 }}%;background:var(--neg)"></div></div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Category cards -->
+    {% if insight.categories %}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+      {% for c in insight.categories %}
+      {% set up = c.delta >= 0 %}
+      <div style="border:1px solid var(--line);background:var(--bg-elev-2);padding:18px 20px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+          <div class="mono" style="font-size:10px;letter-spacing:0.2em;color:var(--text-dim)">[{{ '%02d'|format(loop.index) }}] {{ c.label|upper }}</div>
+          <span class="chip {{ 'neg' if up else 'pos' }}" style="white-space:nowrap">{{ '▲' if up else '▼' }} {{ '+' if up else '−' }}${{ '%.2f'|format(c.delta|abs) }}</span>
+        </div>
+        <div class="mono tabular" style="font-size:26px;font-weight:600;color:var(--text);margin-top:14px;letter-spacing:-0.01em">${{ '%.2f'|format(c.current) }}</div>
+        {% if up %}
+        <div style="margin-top:12px;height:5px;background:var(--bg-elev-2);border:1px solid var(--line-soft)"><div style="height:100%;width:{{ c.share|round }}%;background:var(--accent)"></div></div>
+        {% else %}
+        <div style="margin-top:12px;position:relative;height:5px;background:var(--bg-elev-2);border:1px solid var(--neg-dim)"><div style="position:absolute;inset:0;width:{{ (c.current / c.prior * 100) if c.prior else 0 }}%;background:var(--pos)"></div></div>
+        {% endif %}
+        <div style="font-size:12px;color:var(--text-faint);margin-top:10px">{{ c.caption }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if insight.generated_at %}
+  <div class="mono faint" style="padding:14px 24px;border-top:1px solid var(--line-soft);font-size:10px;letter-spacing:0.15em">GENERATED {{ insight.generated_at }} UTC</div>
+  {% endif %}
+
+  {% else %}
+  <div class="panel-body">
+    <div style="color:var(--text-faint);font-family:var(--mono);font-size:11px;letter-spacing:0.12em">
+      ◇ NO INSIGHTS YET — PRESS GENERATE
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 <!-- Recent activity -->
 <div class="panel">
   <div class="panel-head">
-    <span class="lbl"><span class="idx">[07]</span> Recent Activity</span>
+    <span class="lbl"><span class="idx">[08]</span> Recent Activity</span>
     <a class="act" href="/transactions">VIEW ALL →</a>
   </div>
   <table class="data">
@@ -112,7 +193,7 @@
       <tr>
         <th style="width:110px">Date</th>
         <th>Account</th>
-        <th>Notes</th>
+        <th>Description</th>
         <th style="width:90px">Type</th>
         <th style="width:80px">Bank</th>
         <th style="text-align:right;width:120px">Amount</th>
@@ -128,7 +209,7 @@
             {{ t.account }}
           </span>
         </td>
-        <td class="dim">{{ t.notes }}</td>
+        <td class="dim">{{ t.label or t.notes }}</td>
         <td>
           {% if t.expense_type == 'Need' %}<span class="badge-need">Need</span>
           {% elif t.expense_type == 'Want' %}<span class="badge-want">Want</span>

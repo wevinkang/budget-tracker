@@ -6,9 +6,31 @@ Google Sheets. Ported from the original Google Apps Script.
 import csv
 import io
 import re
+import threading
 from datetime import datetime
 
 import db
+
+# Per-import context (thread-local) used to surface which transactions were
+# categorized by the AI fallback, so they can be shown for review afterward.
+_ctx = threading.local()
+
+
+def _note_ai(merchant, pattern):
+    """Record that `merchant` was just categorized by the AI fallback so the
+    active import can flag it for review. No-op outside of an import."""
+    hits = getattr(_ctx, 'ai_hits', None)
+    if hits is not None:
+        hits.append((merchant, pattern))
+
+
+def _note_skip(merchant, pattern, reason):
+    """Record that `merchant` was skipped as a transfer/payment by a *heuristic*
+    (masked-card regex or the AI transfer verdict — not an exact SKIP_PATTERN) so
+    the active import can list it for review. No-op outside of an import."""
+    hits = getattr(_ctx, 'skip_hits', None)
+    if hits is not None:
+        hits.append((merchant, pattern, reason))
 
 
 def read_upload_to_csv(file, filename: str) -> str:
@@ -121,13 +143,15 @@ CATEGORY_MAP = {
                                'great clips', 'magicuts', 'tommy gun', 'chatters',
                                'first choice haircut', 'lush handmade'],
     'Home expense':           ['ikea', 'home depot', 'rona', 'lowe', 'wayfair', 'rent', 'lease',
-                               'property', 'strata', 'hydro', 'fortis', 'enmax', 'atco',
-                               'home hardware', 'bc hydro', 'toronto hydro', 'hydro one', 'epcor',
-                               'direct energy', 'enercare', 'reliance home', 'just energy',
+                               'property', 'strata', 'home hardware',
                                'mortgage', 'condo fee', 'maintenance fee', 'property tax'],
     'Bill expense':           ['alectra', 'telus', 'cik', 'shaw', 'rogers', 'bell', 'fido',
                                'koodo', 'public mobile', 'internet', 'insurance', 'city of',
                                'utility', 'enbridge', 'ups canada', 'sonnet insurance',
+                               # Electricity / gas / energy utilities (billed monthly)
+                               'hydro', 'bc hydro', 'toronto hydro', 'hydro one', 'fortis',
+                               'enmax', 'atco', 'epcor', 'direct energy', 'enercare',
+                               'reliance home', 'just energy',
                                'virgin mobile', 'lucky mobile', 'chatr', 'freedom mobile', 'oxio',
                                'teksavvy', 'beanfield', 'distributel', 'vmedia', 'eastlink',
                                'cogeco', 'sasktel', 'aviva', 'allstate', 'manulife', 'sun life',
@@ -162,12 +186,39 @@ SKIP_PATTERNS = [
     'payment thank you',
     'Cibc',
     'mb-td visa',
+    'mb-bmo mastercard',
+    'mb-rogers bank mastercard',
+    'scotiabank payment',
+    'bill payment mb-american express cards',
+    # Internal transfers / credit-card & line-of-credit payments — already
+    # recorded on the source statement. Broad substrings catch label variants.
+    'mb-credit card',
+    'credit card/loc pay',
+    'scotiabank transit',
 ]
+
+# A masked card/account number left in the description (e.g. "13*51", "1234*5678")
+# is a strong tell for a credit-card payment or internal transfer. clean_merchant
+# strips runs of 2+ asterisks, so this targets the surviving single-asterisk form.
+MASKED_CARD_RE = re.compile(r'\d\*+\d')
 
 
 def should_skip(merchant: str) -> bool:
+    """True when a row is an internal transfer / credit-card payment to drop.
+
+    Exact SKIP_PATTERNS are silent (intentional, known bank labels). The
+    masked-card heuristic is *noted* so the importer can list it for review,
+    since a heuristic can occasionally misfire. During a suppress pass (used to
+    re-parse a skipped row for the review list) nothing is skipped."""
+    if getattr(_ctx, 'suppress_skip', False):
+        return False
     m = merchant.lower()
-    return any(pattern in m for pattern in SKIP_PATTERNS)
+    if any(pattern in m for pattern in SKIP_PATTERNS):
+        return True
+    if MASKED_CARD_RE.search(merchant):
+        _note_skip(merchant, '', 'masked-card')
+        return True
+    return False
 
 
 # ── Need / Want classification ────────────────────────────────
@@ -248,9 +299,14 @@ def is_e_transfer(merchant):
 
 
 def categorize(merchant):
-    """Return (category, reimbursement, skip) for the given merchant string."""
+    """Return (category, reimbursement, skip) for the given merchant string.
+
+    During a suppress pass (re-parsing a skipped row for the review list) saved
+    skip rules are ignored and the AI is never consulted, so the row resolves to
+    a normal transaction we can show and optionally import."""
+    suppress = getattr(_ctx, 'suppress_skip', False)
     saved_cat, saved_reimb, saved_skip = db.apply_merchant_rules(merchant)
-    if saved_skip:
+    if saved_skip and not suppress:
         return '', 0, True
     if saved_cat:
         return saved_cat, saved_reimb, False
@@ -262,6 +318,29 @@ def categorize(merchant):
     for category, keywords in CATEGORY_MAP.items():
         if any(kw in m for kw in keywords):
             return category, 0, False
+
+    if suppress:
+        return '', 0, False   # re-parse pass: never hit the API, never skip
+
+    # AI fallback for genuinely unknown merchants (opt-in: BUDGET_AI=1 + key).
+    # On a hit, the result is saved as a merchant rule so it's deterministic and
+    # free on every future import (and never re-sent to the API).
+    import ai
+    if ai.enabled() and merchant.strip():
+        result = ai.classify_merchant(merchant)
+        if result:
+            category, pattern = result
+            if category == ai.TRANSFER:
+                # AI judged this an internal transfer / credit-card payment.
+                # Save a skip rule (deterministic + free hereafter) and flag it
+                # for review so a wrong call can be un-skipped.
+                db.save_merchant_rule(pattern, '', skip=True)
+                _note_skip(merchant, pattern, 'ai')
+                return '', 0, True
+            db.save_merchant_rule(pattern, category)
+            _note_ai(merchant, pattern)
+            return category, 0, False
+
     return '', 0, False
 
 
@@ -271,6 +350,77 @@ def need_want_label(category):
     if category in db.INCOME_CATEGORIES or category.endswith('Income'):
         return ''
     return NEED_WANT_MAP.get(category, 'Want')
+
+
+def reapply_rules_to_existing():
+    """Re-run the saved merchant rules against every existing transaction, and
+    (when AI is enabled) categorize still-uncategorized merchants via the AI
+    classifier.
+
+    For each transaction whose merchant (stored in `notes`) matches a rule, set
+    the category/reimbursement to the rule's values and recompute Need/Want.
+    Skip-rules don't apply retroactively (they only suppress new imports), so
+    matched skip-rules leave the transaction untouched.
+
+    For transactions that no rule matches and that are still uncategorized, the
+    AI classifier is consulted (opt-in: BUDGET_AI=1 + key). A hit is saved as a
+    merchant rule, so it's deterministic on future imports and the API is never
+    asked about the same merchant twice. Existing categories are never
+    overwritten by the AI — it only fills blanks.
+
+    Returns (updated, unchanged, ai_categorized).
+    """
+    import ai
+    ai_on = ai.enabled()
+    ai_seen = {}  # merchant (lowercased) -> category or '' — cache for this pass
+
+    updated = unchanged = ai_categorized = 0
+    for row in db.get_transactions():
+        merchant = row['notes'] or ''
+        cat, reimb, skip = db.apply_merchant_rules(merchant)
+        if skip:
+            unchanged += 1
+            continue
+
+        from_ai = False
+        # No rule matched and the transaction is still uncategorized → try AI.
+        if (not cat and ai_on and merchant.strip()
+                and not (row['account'] or '').strip()
+                and not is_e_transfer(merchant)):
+            key = merchant.lower().strip()
+            if key not in ai_seen:
+                result = ai.classify_merchant(merchant)
+                if result:
+                    ai_cat, pattern = result
+                    if ai_cat == ai.TRANSFER:
+                        # Transfer/payment → save a skip rule for future imports;
+                        # leave the existing row untouched (don't recategorize).
+                        db.save_merchant_rule(pattern, '', skip=True)
+                        ai_seen[key] = ''
+                    else:
+                        db.save_merchant_rule(pattern, ai_cat)
+                        ai_seen[key] = ai_cat
+                else:
+                    ai_seen[key] = ''
+            cat = ai_seen[key]
+            from_ai = bool(cat)
+
+        if not cat:
+            unchanged += 1
+            continue
+        if cat == row['account'] and (reimb or 0) == (row['reimbursement'] or 0):
+            unchanged += 1
+            continue
+
+        data = dict(row)
+        data['account'] = cat
+        data['reimbursement'] = reimb
+        data['expense_type'] = need_want_label(cat)
+        db.update_transaction(row['id'], data)
+        updated += 1
+        if from_ai:
+            ai_categorized += 1
+    return updated, unchanged, ai_categorized
 
 
 # ── Bank detection ────────────────────────────────────────────
@@ -491,9 +641,12 @@ def parse_simplii(row):
 
 def parse_scotia(row):
     """
-    Scotiabank chequing CSV export. Columns:
-    Filter, Date, Description, Sub-description, Type of Transaction, Amount, Balance
-    Amount is signed: Credit (positive) = inflow, Debit (negative) = outflow.
+    Scotiabank CSV export (chequing or credit card). Columns vary slightly:
+      chequing:    Filter, Date, Description, Sub-description, Type of Transaction, Amount, Balance
+      credit card: Filter, Date, Description, Sub-description, Status, Type of Transaction, Amount
+    The amount may be signed (chequing) or unsigned with the sign carried by a
+    "Type of Transaction" cell of Debit/Credit (credit card). We locate that
+    cell to recover the sign and read the amount from the column after it.
     The merchant detail lives in Sub-description; Description is the bank's
     activity label (e.g. "bill payment"), so we combine the two for categorizing.
     """
@@ -506,7 +659,17 @@ def parse_scotia(row):
         merchant = clean_merchant(f'{desc} {sub}'.strip())
         if should_skip(merchant):
             return None
-        amount = parse_amount(row[5])
+        # Find the Debit/Credit cell; the amount sits in the next column.
+        type_idx = next((i for i, c in enumerate(row)
+                         if str(c).strip().lower() in ('debit', 'credit')), None)
+        if type_idx is not None and type_idx + 1 < len(row):
+            amount = parse_amount(row[type_idx + 1])
+            if amount is not None and str(row[type_idx]).strip().lower() == 'debit':
+                amount = -abs(amount)
+            elif amount is not None:
+                amount = abs(amount)
+        else:
+            amount = parse_amount(row[5])
         if amount is None or amount == 0:
             return None
         if amount > 0:
@@ -672,16 +835,23 @@ def make_generic_parser(layout):
 def import_csv_string(content):
     """
     Parse a bank CSV string and write new transactions to the DB.
-    Returns (added, skipped, bank_name_or_None).
+    Returns (added, skipped, bank_name_or_None, ai_review, skip_review,
+    etransfer_review) where ai_review lists rows the AI fallback categorized,
+    skip_review lists rows dropped as likely transfers/payments by a heuristic
+    (masked-card regex or the AI transfer verdict) — each a {date, merchant,
+    amount, account, expense_type, month, bank, pattern, reason} dict — and
+    etransfer_review lists newly-added e-transfer expenses (generic bank text,
+    left uncategorized by categorize()) for the user to label, each a
+    {id, date, merchant, amount} dict.
     """
     try:
         reader = csv.reader(io.StringIO(content.strip()))
     except Exception:
-        return 0, 0, None
+        return 0, 0, None, [], [], []
 
     rows = list(reader)
     if len(rows) < 2:
-        return 0, 0, None
+        return 0, 0, None, [], [], []
 
     header_idx, data_start = find_header_row(rows)
     bank = detect_bank(rows[header_idx])
@@ -703,37 +873,94 @@ def import_csv_string(content):
         if not layout:
             import logging
             logging.getLogger(__name__).warning(f'Bank detection failed and column inference failed. Header row: {rows[0]}')
-            return 0, 0, None
+            return 0, 0, None, [], [], []
         bank = 'generic'
         parse_fn = make_generic_parser(layout)
 
     existing = db.get_dedupe_keys()
     added = skipped = 0
+    ai_review = []
+    skip_review = []
+    etransfer_review = []
 
-    for row in rows[data_start:]:
-        if all(str(c).strip() == '' for c in row):
-            continue
-        t = parse_fn(row)
-        if not t:
-            continue
-        key = f"{t['date']}|{t['merchant']}|{t['amount']}"
-        if key in existing:
-            skipped += 1
-            continue
-        db.add_transaction({
-            'date':          t['date'],
-            'account':       t['category'],
-            'amount':        t['amount'],
-            'notes':         t['merchant'],
-            'expense_type':  t['needWant'],
-            'month':         t['month'],
-            'bank':          t['bank'],
-            'reimbursement': t.get('reimbursement', 0),
-        })
-        existing.add(key)
-        added += 1
+    _ctx.ai_hits = []
+    _ctx.skip_hits = []
+    _ctx.suppress_skip = False
+    try:
+        for row in rows[data_start:]:
+            if all(str(c).strip() == '' for c in row):
+                continue
+            before = len(_ctx.ai_hits)
+            before_skip = len(_ctx.skip_hits)
+            t = parse_fn(row)
+            if not t:
+                # A heuristic (masked-card / AI) skipped this as a transfer →
+                # re-parse with skipping suppressed to recover its details and
+                # list it for review.
+                if len(_ctx.skip_hits) > before_skip:
+                    _, pattern, reason = _ctx.skip_hits[-1]
+                    _ctx.suppress_skip = True
+                    try:
+                        full = parse_fn(row)
+                    finally:
+                        _ctx.suppress_skip = False
+                    if full:
+                        skip_review.append({
+                            'date':         full['date'],
+                            'merchant':     full['merchant'],
+                            'amount':       full['amount'],
+                            'account':      full['category'],
+                            'expense_type': full['needWant'],
+                            'month':        full['month'],
+                            'bank':         full['bank'],
+                            'pattern':      pattern,
+                            'reason':       reason,
+                        })
+                continue
+            key = f"{t['date']}|{t['merchant']}|{t['amount']}"
+            if key in existing:
+                skipped += 1
+                continue
+            new_id = db.add_transaction({
+                'date':          t['date'],
+                'account':       t['category'],
+                'amount':        t['amount'],
+                'notes':         t['merchant'],
+                'expense_type':  t['needWant'],
+                'month':         t['month'],
+                'bank':          t['bank'],
+                'reimbursement': t.get('reimbursement', 0),
+            })
+            existing.add(key)
+            added += 1
+            # This row's category came from the AI fallback → flag it for review.
+            if len(_ctx.ai_hits) > before and t['category']:
+                _, pattern = _ctx.ai_hits[-1]
+                ai_review.append({
+                    'id':       new_id,
+                    'date':     t['date'],
+                    'merchant': t['merchant'],
+                    'amount':   t['amount'],
+                    'category': t['category'],
+                    'pattern':  pattern,
+                })
+            # An e-transfer expense: bank text is generic ("INTERAC E-TRANSFER"),
+            # so categorize() left it uncategorized — ask the user what it was
+            # for. The label is saved separately from `notes` (see /import/label
+            # in app.py), so re-importing this file still dedupes on the
+            # untouched raw bank text even after labeling.
+            elif not t['category'] and is_e_transfer(t['merchant']):
+                etransfer_review.append({
+                    'id':       new_id,
+                    'date':     t['date'],
+                    'merchant': t['merchant'],
+                    'amount':   t['amount'],
+                })
+    finally:
+        _ctx.ai_hits = None
+        _ctx.skip_hits = None
 
-    return added, skipped, bank.upper()
+    return added, skipped, bank.upper(), ai_review, skip_review, etransfer_review
 
 
 def import_transactions_csv(content):

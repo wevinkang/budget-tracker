@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import logging
 import math
 import os
@@ -11,6 +12,7 @@ from functools import wraps
 
 from flask import Flask, Response, flash, jsonify, redirect, render_template, request, session, url_for
 
+import ai
 import db
 import importer
 
@@ -116,6 +118,17 @@ def index():
     trend          = [r for r in net_summary if not r.get('is_total')][-6:]
     accounts       = db.get_accounts()
 
+    raw_insight    = db.get_insight(month)
+    insight        = None
+    if raw_insight:
+        try:
+            insight = json.loads(raw_insight['content'])
+        except (ValueError, TypeError):
+            # Legacy plaintext insight — show it as the summary sentence.
+            insight = {'summary': raw_insight['content'], 'net': None,
+                       'income': None, 'expenses': None, 'categories': []}
+        insight['generated_at'] = raw_insight['generated_at']
+
     return render_template('dashboard.html',
                            month=month,
                            months=months,
@@ -126,7 +139,29 @@ def index():
                            category_data=category_data[:5],
                            recent=recent,
                            trend=trend,
-                           accounts=accounts)
+                           accounts=accounts,
+                           ai_enabled=ai.enabled(),
+                           insight=insight)
+
+
+@app.route('/insights/<month>', methods=['POST'])
+@login_required
+def generate_insights(month):
+    if not ai.enabled():
+        flash('AI insights are off — set BUDGET_AI=1 and ANTHROPIC_API_KEY.')
+        return redirect(url_for('index', month=month))
+
+    cat = db.get_category_report(month)
+    inc = db.get_income_report(month)
+    months = db.get_months()
+    prev = months[months.index(month) - 1] if month in months and months.index(month) > 0 else None
+    prev_cat = db.get_category_report(prev) if prev else []
+    try:
+        data = ai.monthly_insights(month, cat, inc, prev, prev_cat)
+        db.save_insight(month, json.dumps(data))
+    except Exception as e:
+        flash(f'Insight generation failed: {e}')
+    return redirect(url_for('index', month=month))
 
 
 @app.route('/transactions')
@@ -162,7 +197,10 @@ def transactions():
                            search=search,
                            page=page,
                            total_pages=total_pages,
-                           total_count=total_count)
+                           total_count=total_count,
+                           ai_review=session.pop('ai_review', None),
+                           skip_review=session.pop('skip_review', None),
+                           etransfer_review=session.pop('etransfer_review', None))
 
 
 @app.route('/transactions/add', methods=['POST'])
@@ -229,8 +267,9 @@ def delete_merchant_rule(rule_id):
 @app.route('/merchant-rules/reapply', methods=['POST'])
 @login_required
 def reapply_merchant_rules():
-    updated, unchanged = importer.reapply_rules_to_existing()
-    flash(f'Reapplied rules: {updated} updated, {unchanged} unchanged.')
+    updated, unchanged, ai_categorized = importer.reapply_rules_to_existing()
+    detail = f' ({ai_categorized} via AI)' if ai_categorized else ''
+    flash(f'Reapplied rules: {updated} updated{detail}, {unchanged} unchanged.')
     return redirect(url_for('merchant_rules'))
 
 
@@ -239,6 +278,46 @@ def reapply_merchant_rules():
 def delete_transaction(tid):
     db.delete_transaction(tid)
     return jsonify(success=True)
+
+
+@app.route('/reimbursements/candidates')
+@login_required
+def reimbursement_candidates():
+    """Recent expenses to pick from when applying an incoming payment."""
+    return jsonify(db.get_expenses_for_reimbursement())
+
+
+@app.route('/reimbursements/apply', methods=['POST'])
+@login_required
+def apply_reimbursement():
+    """Apply (part of) an incoming payment to an expense's reimbursement so a
+    repaid split nets out of the expense instead of showing as phantom income.
+    An optional `amount` applies only a portion, letting one deposit be split
+    across several expenses; omit it to apply as much as the expense can absorb."""
+    try:
+        payment_id = int(request.form.get('payment_id'))
+        expense_id = int(request.form.get('expense_id'))
+    except (TypeError, ValueError):
+        return jsonify(success=False, error='Invalid transaction ids'), 400
+    if payment_id == expense_id:
+        return jsonify(success=False, error='Cannot reimburse a row against itself'), 400
+
+    raw_amount = request.form.get('amount')
+    amount = None
+    if raw_amount not in (None, ''):
+        try:
+            amount = float(raw_amount)
+        except ValueError:
+            return jsonify(success=False, error='Invalid amount'), 400
+        if amount <= 0:
+            return jsonify(success=False, error='Amount must be positive'), 400
+
+    result = db.apply_reimbursement(payment_id, expense_id, amount)
+    if result is None:
+        return jsonify(success=False,
+                       error='Nothing to apply — the expense is already fully '
+                             'reimbursed, or the row is missing.'), 400
+    return jsonify(success=True, **result)
 
 
 def _form_to_transaction(form):
@@ -256,6 +335,7 @@ def _form_to_transaction(form):
         'month':         month,
         'bank':          form.get('bank', ''),
         'reimbursement': float(form.get('reimbursement', 0) or 0),
+        'label':         form.get('label', ''),
     }
 
 
@@ -358,6 +438,7 @@ def category_transactions():
         'date':          t['date'],
         'account':       t['account'],
         'notes':         t['notes'],
+        'label':         t['label'] or '',
         'amount':        t['amount'],
         'reimbursement': t['reimbursement'] or 0,
         'expense_type':  t['expense_type'],
@@ -409,7 +490,10 @@ def delete_account(aid):
 def import_page():
     return render_template('import.html',
                            logs=db.get_import_logs(),
-                           import_folder=str(IMPORT_FOLDER))
+                           import_folder=str(IMPORT_FOLDER),
+                           ai_review=session.pop('ai_review', None),
+                           skip_review=session.pop('skip_review', None),
+                           etransfer_review=session.pop('etransfer_review', None))
 
 
 BANK_UPLOAD_EXTS = ('.csv', '.xls', '.xlsx')
@@ -423,7 +507,7 @@ def import_bank_csv():
         flash('No files selected.')
         return redirect(url_for('import_page'))
 
-    ok, bad = [], []
+    ok, bad, review, skips, etransfers = [], [], [], [], []
     for f in files:
         name = f.filename
         if not name.lower().endswith(BANK_UPLOAD_EXTS):
@@ -434,10 +518,16 @@ def import_bank_csv():
         except Exception as e:
             bad.append(f'{name}: read error ({e})')
             continue
-        added, skipped, bank = importer.import_csv_string(content)
+        added, skipped, bank, ai_review, skip_review, etransfer_review = importer.import_csv_string(content)
         if bank:
             db.log_import(name, bank, added, skipped)
-            ok.append(f'{name} → {bank}: {added} imported, {skipped} skipped')
+            note = f' · {len(ai_review)} AI-categorized' if ai_review else ''
+            note += f' · {len(skip_review)} skipped as transfers' if skip_review else ''
+            note += f' · {len(etransfer_review)} e-transfers need labeling' if etransfer_review else ''
+            ok.append(f'{name} → {bank}: {added} imported, {skipped} skipped{note}')
+            review.extend(ai_review)
+            skips.extend(skip_review)
+            etransfers.extend(etransfer_review)
         else:
             bad.append(f'{name}: could not detect bank format')
 
@@ -445,7 +535,15 @@ def import_bank_csv():
         flash(line)
     for line in bad:
         flash(line)
-    return redirect(url_for('import_page'))
+    # Surface AI-categorized, heuristically-skipped, and unlabeled e-transfer
+    # rows for review on the next page load (caps keep the session cookie small).
+    if review:
+        session['ai_review'] = review[:60]
+    if skips:
+        session['skip_review'] = skips[:40]
+    if etransfers:
+        session['etransfer_review'] = etransfers[:40]
+    return redirect(request.form.get('next') or url_for('import_page'))
 
 
 @app.route('/import/transactions-csv', methods=['POST'])
@@ -465,7 +563,7 @@ def import_transactions_csv():
         added, skipped = importer.import_transactions_csv(content)
         db.log_import(f.filename, 'Transactions Export', added, skipped)
         flash(f'{f.filename}: {added} added, {skipped} skipped')
-    return redirect(url_for('import_page'))
+    return redirect(request.form.get('next') or url_for('import_page'))
 
 
 @app.route('/import/<int:log_id>/undo', methods=['POST'])
@@ -474,6 +572,79 @@ def undo_import(log_id):
     deleted = db.undo_import(log_id)
     flash(f'Undone — {deleted} transaction(s) removed.')
     return redirect(url_for('import_page'))
+
+
+@app.route('/import/review/<int:tid>', methods=['POST'])
+@login_required
+def review_categorize(tid):
+    """Save a reviewed AI categorization: set the transaction's category and
+    update the learned merchant rule, so future imports (and API spend) reflect
+    the corrected category."""
+    category = request.form.get('account', '').strip()
+    pattern  = request.form.get('pattern', '').strip().lower()
+    txn = db.get_transaction(tid)
+    if not txn or not category:
+        return jsonify(success=False), 400
+    data = dict(txn)
+    data['account']      = category
+    data['expense_type'] = importer.need_want_label(category)
+    db.update_transaction(tid, data)
+    if pattern:
+        db.save_merchant_rule(pattern, category)
+    return jsonify(success=True)
+
+
+@app.route('/import/label/<int:tid>', methods=['POST'])
+@login_required
+def import_label(tid):
+    """Save what an e-transfer was actually for. Interac e-transfer bank text
+    is generic ("INTERAC E-TRANSFER") and usually just names the recipient, so
+    it can't be auto-categorized — this lets the user say what it was for and
+    pick a category after the fact. Only `account`/`expense_type`/`label` are
+    touched; `notes` (the raw bank text used for import dedup) is left alone so
+    re-importing the same file still skips this row even after labeling."""
+    category = request.form.get('account', '').strip()
+    label    = request.form.get('label', '').strip()
+    txn = db.get_transaction(tid)
+    if not txn or not category:
+        return jsonify(success=False), 400
+    data = dict(txn)
+    data['account']      = category
+    data['expense_type'] = importer.need_want_label(category)
+    data['label']        = label
+    db.update_transaction(tid, data)
+    return jsonify(success=True)
+
+
+@app.route('/import/unskip', methods=['POST'])
+@login_required
+def import_unskip():
+    """Import a row that was auto-skipped as a transfer/payment after all. Drops
+    the AI skip rule (if any) so the merchant imports going forward, then adds
+    the transaction."""
+    try:
+        amount = float(request.form.get('amount', 0) or 0)
+    except ValueError:
+        amount = 0
+    date = request.form.get('date', '').strip()
+    if not date or amount == 0:
+        return jsonify(success=False, error='Missing transaction data'), 400
+
+    pattern = request.form.get('pattern', '').strip().lower()
+    if pattern:
+        db.remove_skip_rule(pattern)
+
+    new_id = db.add_transaction({
+        'date':          date,
+        'account':       request.form.get('account', ''),
+        'amount':        amount,
+        'notes':         request.form.get('notes', ''),
+        'expense_type':  request.form.get('expense_type', ''),
+        'month':         request.form.get('month', ''),
+        'bank':          request.form.get('bank', ''),
+        'reimbursement': 0,
+    })
+    return jsonify(success=True, id=new_id)
 
 
 # ── Entry point ───────────────────────────────────────────────

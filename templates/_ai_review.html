@@ -1,0 +1,79 @@
+{#
+  AI categorization review modal. Rendered whenever an import surfaced rows that
+  the AI fallback categorized. Shared by the Import page and Transactions (both
+  read `ai_review` from the session after an import redirect).
+#}
+{% if ai_review %}
+<div class="modal-scrim" id="reviewScrim" onclick="if(event.target===this)closeReview()">
+  <div class="modal-card" style="width:760px">
+    <div class="modal-head">
+      <span>AI-CATEGORIZED · REVIEW [{{ '%02d'|format(ai_review|length) }}]</span>
+      <button onclick="closeReview()" style="color:var(--text-faint);font-size:16px">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="upload-meta" style="margin-bottom:14px">
+        <div>These were auto-categorized by <span class="accent-c">Claude</span> during import.</div>
+        <div class="faint">Each is already saved as a merchant rule — the same merchant won't be sent to the API again. Adjust anything that looks wrong; a change updates the saved rule too.</div>
+      </div>
+      <table class="data">
+        <thead>
+          <tr>
+            <th style="width:96px">Date</th>
+            <th>Merchant</th>
+            <th class="num" style="width:90px">Amount</th>
+            <th style="width:210px">Category</th>
+            <th style="width:78px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in ai_review %}
+          <tr class="review-row" data-id="{{ r.id }}" data-pattern="{{ r.pattern }}">
+            <td class="mono faint">{{ r.date }}</td>
+            <td class="dim">{{ r.merchant }}</td>
+            <td class="num mono">${{ '%.2f'|format(r.amount) }}</td>
+            <td>
+              <select class="select review-cat" style="font-size:11px">
+                {% for a in _accounts %}
+                <option value="{{ a.name }}" {% if a.name == r.category %}selected{% endif %}>{{ a.name }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <button type="button" class="btn small" onclick="saveReview(this)">SAVE</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn primary" onclick="closeReview()">DONE</button>
+    </div>
+  </div>
+</div>
+<script>
+  function closeReview() {
+    const s = document.getElementById('reviewScrim');
+    if (s) s.remove();
+  }
+  function saveReview(btn) {
+    const row = btn.closest('.review-row');
+    const category = row.querySelector('.review-cat').value;
+    const body = new URLSearchParams({ account: category, pattern: row.dataset.pattern });
+    btn.disabled = true;
+    btn.textContent = '…';
+    fetch('/import/review/' + row.dataset.id, { method: 'POST', body })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          btn.textContent = 'SAVED ✓';
+          btn.classList.add('primary');
+          row.querySelector('.review-cat').disabled = true;
+        } else {
+          btn.disabled = false; btn.textContent = 'SAVE';
+        }
+      })
+      .catch(() => { btn.disabled = false; btn.textContent = 'SAVE'; });
+  }
+</script>
+{% endif %}
